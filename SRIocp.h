@@ -1,24 +1,24 @@
 #pragma once
-#define _WINSOCK_DEPRECATED_NO_WARNINGS // inet_addr gethostbyname ë“±ì˜ deprecated í•¨ìˆ˜ ì´ìš©
+#define _WINSOCK_DEPRECATED_NO_WARNINGS // inet_addr gethostbyname µîÀÇ deprecated ÇÔ¼ö ÀÌ¿ë
 #pragma comment(lib, "ws2_32")
 #pragma comment(lib, "mswsock.lib")
 #include <WinSock2.h>
 #include <Windows.h>
 #include <mswsock.h>
 #include <stdlib.h>
-#include <process.h> //beginthreadex ë“±
+#include <process.h> //beginthreadex µî
 #include <iostream>
 #include <string>	//std::string
 #include <atlstr.h> //CString 
 #include <vector>
-#include <deque>
+#include <map>
 #include <ws2tcpip.h>
-
-const unsigned int BUFFSIZE = 512;
 
 class CIocp;
 
-enum class CSType
+const unsigned int BUFFSIZE = 512;
+
+enum class ECSType
 {
 	SERVER = 0,
 	CLIENT
@@ -33,121 +33,127 @@ enum class IOType
 	SEND
 };
 
-//ì˜¤ë²„ë© í™•ì¥
+//¿À¹ö·¦ È®Àå
 typedef struct
 {
-	OVERLAPPED overLapped;
+	OVERLAPPED overlapped;
 	WSABUF dataBuff;
-	CHAR Buff[BUFFSIZE];
-	SOCKET connectSocket;
+	CHAR buff[BUFFSIZE];
+	SOCKET socket;
+	UINT uIndex;
 	IOType ioType;
 }IODATA;
 
 typedef struct
 {
-	CIocp* connection;
+	CIocp* pConnection;
 	CHAR Buff[BUFFSIZE];
 }PacketInfo;
 
+//¶óÀÌºê·¯¸®¸¦ »ç¿ëÇÒ ¿ÜºÎ¿¡¼­ °Ç³×ÁÙ ÇÔ¼öÆ÷ÀÎÅÍ Å¸ÀÔµé.
+typedef void (*AcceptFunc)(UINT uIndex);
+typedef void (*ConnectFunc)(UINT uIndex);
+typedef void (*CloseFunc)(UINT uIndex);
+typedef void (*RecvFunc)(PacketInfo* pPacketInfo);
 
-//CIocpë¥¼ ìƒì†ë°›ëŠ” ë©”ì¸ì†Œì¼“ê³¼ ë˜‘ê°™ì´ CIocpë¥¼ ìƒì†ë°›ëŠ” ì°¨ì¼ë“œì†Œì¼“
-//ì°¨ì¼ë“œì†Œì¼“ë“¤ì€ ë©”ì¸ì†Œì¼“ì„ ë©¤ë²„ë¡œ ê°€ì§€ê³  ìˆìŒ. ì°¨ì¼ë“œ ì†Œì¼“ë“¤ì´ ê°ê° ì—°ê²°ëœ ì»¤ë„¥ì…˜ ì •ë„ì˜ ì˜ë¯¸.
+
 class CIocp
 {
 public:
-	CSType m_csType;
-	UINT bindPort; //acceptìš©ë„ì˜ bindí•  í¬íŠ¸
-	bool isConnected; //ì°¨ì¼ë“œ ì†Œì¼“ì˜ ê²½ìš° accept/connect ì²´í¬ìš©. ë©”ì¸ ì†Œì¼“ì˜ ê²½ìš° ë£¨í”„ ì¤‘ delete íƒ€ì´ë°ì„ ë§ì¶”ê¸° ìœ„í•´ ì´ìš©.
-	SOCKET m_listenSocket; //ë¦¬ìŠ¨ì†Œì¼“
-	SOCKET m_socket; //ì°¨ì¼ë“œ ì†Œì¼“ë“¤ì´ ê°€ì§ˆ ì†Œì¼“. send recvìš©
-	HANDLE completionPort; //completionport í•¸ë“¤
-	SYSTEM_INFO sysInfo; //cpuê°œìˆ˜ ì²´í¬ìš©
-	IODATA* m_ioData; //ì˜¤ë²„ë© í™•ì¥. ë²„í¼ ë° ë¦¬ì‹œë¸Œ ì„¼ë“œ íƒ€ì…
-	std::vector<CIocp*> pConnectionList; //ì°¨ì¼ë“œ ì†Œì¼“ í’€.
-	CIocp* m_pMainConnection;
-	std::string remoteIP; //ì™¸ë¶€ì—ì„œ ì—°ê²°ì‹œë„í•œ ì»¤ë„¥ì…˜ì˜ ip
-	UINT remotePort; //ì™¸ë¶€ì—ì„œ ì—°ê²°ì‹œë„í•œ ì»¤ë„¥ì…˜ì˜ í¬íŠ¸
-	bool bIsWorkerThread;
-	CRITICAL_SECTION recvCS;
+	ECSType m_eCSType;
+	UINT m_nBindPort; //accept¿ëµµÀÇ bindÇÒ Æ÷Æ®
+	bool m_isConnected; //Â÷ÀÏµå ¼ÒÄÏÀÇ °æ¿ì accept/connect Ã¼Å©¿ë. ¸ŞÀÎ ¼ÒÄÏÀÇ °æ¿ì ·çÇÁ Áß delete Å¸ÀÌ¹ÖÀ» ¸ÂÃß±â À§ÇØ ÀÌ¿ë.
+	SOCKET m_ListenSocket; //¸®½¼ ¼ÒÄÏ
+	SOCKET m_socket; //Ä¿³Ø¼Ç µéÀÌ °¡Áú ¼ÒÄÏ. send recv¿ë
+	HANDLE m_CompletionPort; //completionport ÇÚµé
+	IODATA* m_pIoData; //¿À¹ö·¦ È®Àå. ¹öÆÛ ¹× ¸®½Ãºê ¼¾µå Å¸ÀÔ
+
+	std::vector<CIocp*> m_ConnectionList; //Ä¿³Ø¼Ç ¸®½ºÆ®
+	UINT m_uConnectionIndex;
+	CIocp* m_pMainConnection; //Â÷ÀÏµå Ä¿³Ø¼ÇµéÀÌ ¸ŞÀÎ Ä¿³Ø¼Ç¿¡ Á¢±ÙÇÏ±â À§ÇÑ Æ÷ÀÎÅÍ
+
+	std::string m_szRemoteIP; //¿ÜºÎ¿¡¼­ ¿¬°á½ÃµµÇÑ Ä¿³Ø¼ÇÀÇ ip
+	UINT m_uRemotePort; //¿ÜºÎ¿¡¼­ ¿¬°á½ÃµµÇÑ Ä¿³Ø¼ÇÀÇ Æ÷Æ®
+	bool m_bWorkerThreadLive;
+
+	//ExÇÔ¼ö¸¦ ÀÌ¿ëÇÏ±â À§ÇÑ ÇÔ¼öÆ÷ÀÎÅÍ.
 	LPFN_ACCEPTEX lpfnAcceptEx;
 	LPFN_DISCONNECTEX lpfnDisconnectEx;
 	LPFN_CONNECTEX lpfnConnectEx;
-	std::vector<PacketInfo>* readBuff; //ë©”ì¸ì†Œì¼“ì—ì„œ íŒ¨í‚·ë“¤ì„ ê³„ì† ì²˜ë¦¬í•  ë²„í¼
-	UINT readBuffPos; //íŒ¨í‚· í”„ë¡œì„¸ìŠ¤ ìŠ¤ë ˆë“œì—ì„œ ì½ê³  ìˆëŠ” ë¦¬ë“œ ë²„í¼ ìœ„ì¹˜.
-	std::vector<PacketInfo>* writeBuff;//ì°¨ì¼ë“¤ ì†Œì¼“ë“¤ì´ ë¦¬ì‹œë¸Œ ë²„í¼ì˜ ë‚´ìš©ì„ ê³„ì† ì¨ë„£ì„ ë©”ì¸ì†Œì¼“ì˜ ë²„í¼
-	ULONG ilWriteBuffPos; //ì¸í„°ë½ìœ¼ë¡œ ê´€ë¦¬í•  ë¼ì´íŠ¸ ë²„í¼ì˜ ìœ„ì¹˜.
-	std::vector<PacketInfo>* sendBuff;
-	UINT sendBuffPos;
-	char* recvBuff; //ì™„ì „í•˜ì§€ ì•Šì€ íŒ¨í‚·ì„ ì„ì‹œ ë³´ê´€í•˜ëŠ” ë²„í¼
-	UINT recvBuffPos;
-	UINT ioBuffPos;
 
-	DWORD dwLockNum; //ì›Œì»¤ìŠ¤ë ˆë“œ ê°¯ìˆ˜ì´ì RWë²„í¼ ìŠ¤ì™‘í•  ë•Œ ê±¸ ë½ì˜ ê°¯ìˆ˜.
-	SRWLOCK* m_BufferSwapLock; //ë²„í¼ ìŠ¤ì™‘ìš© SRWLock ë°°ì—´
-	DWORD* m_ThreadIdArr; //ì›Œì»¤ìŠ¤ë ˆë“œ ì•„ì´ë”” ë°°ì—´
+	//¶óÀÌºê·¯¸®¸¦ ÀÌ¿ëÇÒ ÂÊ¿¡¼­ recv¹ŞÀ» ¶§ Ã³¸®ÇÒ ·ÎÁ÷Ã³¸® ÇÔ¼ö Æ÷ÀÎÅÍ.
+	static AcceptFunc g_pOnAcceptFunc;
+	static ConnectFunc g_pOnConnectFunc;
+	static CloseFunc g_pOnCloseFunc;
+	static RecvFunc g_pOnRecvFunc;
 
-	UINT m_ChildSockNum;
+	std::vector<PacketInfo>* m_pReadBuff; //¸ŞÀÎ¼ÒÄÏ¿¡¼­ ÆĞÅ¶µéÀ» °è¼Ó Ã³¸®ÇÒ ¹öÆÛ
+	UINT m_uReadBuffPos; //ÆĞÅ¶ ÇÁ·Î¼¼½º ½º·¹µå¿¡¼­ ÀĞ°í ÀÖ´Â ¸®µå ¹öÆÛ À§Ä¡.
+	std::vector<PacketInfo>* m_pWriteBuff;//Â÷ÀÏµé ¼ÒÄÏµéÀÌ ¸®½Ãºê ¹öÆÛÀÇ ³»¿ëÀ» °è¼Ó ½á³ÖÀ» ¸ŞÀÎ¼ÒÄÏÀÇ ¹öÆÛ
+	ULONG m_uInterLockWriteBuffPos; //ÀÎÅÍ¶ôÀ¸·Î °ü¸®ÇÒ ¶óÀÌÆ® ¹öÆÛÀÇ À§Ä¡.
+	std::vector<PacketInfo>* m_pSendBuff;
+	UINT m_uSendBuffPos;
+	char* m_pTempBuff; //¿ÏÀüÇÏÁö ¾ÊÀº ÆĞÅ¶À» ÀÓ½Ã º¸°üÇÏ´Â ¹öÆÛ
+	UINT m_uTempBuffPos;
+	UINT m_uIoPos;
+
+	DWORD m_dwLockNum; //¿öÄ¿½º·¹µå °¹¼öÀÌÀÚ Read Write ¹öÆÛ ½º¿ÒÇÒ ¶§ °É ¶ôÀÇ °¹¼ö.
+	SRWLOCK* m_pBufferSwapLock; //¹öÆÛ ½º¿Ò¿ë SRWLock ¹è¿­
+	DWORD* m_pThreadIdArr; //¿öÄ¿½º·¹µå ¾ÆÀÌµğ ¹è¿­
+
+	UINT m_nChildSockNum;
 
 public:
 	CIocp();
 	virtual ~CIocp();
 
-	//ì°¨ì¼ë“œ ì†Œì¼“ì—ì„œ OnRecv()ë“±ì˜ ë‹¤í˜•ì„±ì„ ìœ„í•´ciocpë¥¼ ìƒì†ë°›ì•„ ë§Œë“  ì†Œì¼“ í´ë˜ìŠ¤ì˜ íƒ€ì…ì„ ì•Œì•„ì•¼ ë¼ì„œ í…œí”Œë¦¿ìœ¼ë¡œ..
-	template<typename T>
-	T* SetChildSockType(T* type, int count)
-	{
-		for (int i = 0; i < count; i++)
-		{
-			CIocp* child = new T();
-			child->recvBuff = new char[BUFFSIZE];
-			ZeroMemory(child->recvBuff, BUFFSIZE);
-			child->m_pMainConnection = this;
-			child->recvCS = this->recvCS;
-			pConnectionList.push_back(child);
-		}
+	bool InitConnectionList(UINT nCount);
 
-		m_ChildSockNum = count;
-		return type;
-	};
-
-
-	bool InitSocket(CSType csType, UINT port); // í´ë¼ì´ì–¸íŠ¸ì˜ ê²½ìš° í¬íŠ¸ëŠ” NULL ë„£ì–´ì„œ ì´ìš©.
+	bool InitSocket(ECSType csType, UINT port); // Å¬¶óÀÌ¾ğÆ®ÀÇ °æ¿ì Æ÷Æ®´Â NULL ³Ö¾î¼­ ÀÌ¿ë.
 	void InitSocketOption(SOCKET socket);
 	void SetReuseSocketOpt(SOCKET socket);
 	void SetLingerOpt(SOCKET socket);
 	void SetNagleOffOpt(SOCKET socket);
+
+	bool InitAcceptPool(UINT num);
+	bool InitConnectPool(UINT num);
+
+	static void SetOnAcceptFunc(AcceptFunc pFunc) { g_pOnAcceptFunc = pFunc; };
+	static void OnAccept(UINT uIndex) { g_pOnAcceptFunc(uIndex); };
+	
+	static void SetOnConnectFunc(ConnectFunc pFunc) { g_pOnConnectFunc = pFunc; };
+	static void OnConnect(UINT uIndex) { g_pOnConnectFunc(uIndex); };
+	
+	static void SetOnCloseFunc(CloseFunc pFunc) { g_pOnCloseFunc = pFunc; };
+	static void OnClose(UINT uIndex) { g_pOnCloseFunc(uIndex); };
+	
+	static void SetOnRecvFunc(RecvFunc pFunc) { g_pOnRecvFunc = pFunc; };
+	static void OnRecv(PacketInfo* pPacketInfo) { g_pOnRecvFunc(pPacketInfo); };
+
 	bool CreateWorkerThread();
 	static unsigned __stdcall WorkerThread(LPVOID CompletionPortObj);
 	void PacketProcess();
 	void SendPacketProcess();
 	void SwapRWBuffer();
 	void PushWriteBuffer(PacketInfo* packetInfo, DWORD dwLockIndex);
-	bool InitAcceptPool(UINT num);
-	bool InitConnectPool(UINT num);
-	bool ReAcceptSocket(SOCKET socket);
-	void CloseSocket(SOCKET socket);
+
+	bool ReAcceptSocket(UINT uIndex);
+	void CloseSocket(UINT uIndex);
 	SOCKET Connect(LPCTSTR lpszHostAddress, UINT port);
-	bool RecvSet(CIocp* pClient);
-	bool RecvSet(CIocp* pClient, IOType ioType); //ë¦¬ì‹œë¸Œ ì—°ê²°í•˜ë˜ íƒ€ì…ì€ recvê°€ ì•„ë‹ˆë„ë¡ ë°›ê¸° ìœ„í•´ì„œ. ConnectExê°€ 0ë°”ì´íŠ¸ë¥¼ ë³´ë‚´ëŠ”ë° ì—°ê²° ì¢…ë£Œì™€ êµ¬ë¶„í•˜ê¸° ìœ„í•´ ì´ìš©.
-	CIocp* GetEmptyConnection();
-	CIocp* GetConnection(SOCKET socket);
-	CIocp* GetNoneConnectConnection(); //ì†Œì¼“ ì¬í™œìš©í•´ì„œ ì†Œì¼“í•¸ë“¤ì€ ì´ë¯¸ ìˆì§€ë§Œ ì—°ê²°ì€ ì•ˆë˜ì–´ ìˆëŠ” ì°¨ì¼ë“œ ì»¤ë„¥ì…˜ ì–»ì„ë•Œ.
-	bool GetPeerName(CString& peerAdress, UINT& peerPort);
-	bool Send(void* lpBuff, int nBuffSize);
+
+	bool RecvSet(CIocp* pConnection);
+	bool Send(UINT uIndex, void* lpBuff, int nBuffSize);
 	void SendToBuff(void* lpBuff, int nBuffSize);
 
-	PacketInfo GetPacket(); //readë²„í¼ ìœ„ì¹˜ë¥¼ ê°€ë¥´í‚¤ëŠ” ê³³ì˜ íŒ¨í‚·ì„ ë°˜í™˜.
+	CIocp* GetEmptyConnection();
+	CIocp* GetConnection(UINT uIndex);
+	CIocp* GetNoneConnectConnection(); //¼ÒÄÏ ÀçÈ°¿ëÇØ¼­ ¼ÒÄÏÇÚµéÀº ÀÌ¹Ì ÀÖÁö¸¸ ¿¬°áÀº ¾ÈµÇ¾î ÀÖ´Â Â÷ÀÏµå Ä¿³Ø¼Ç ¾òÀ»¶§.
+	bool GetPeerName(CString& peerAdress, UINT& peerPort);
+
 	void StopThread();
 	UINT GetThreadLockNum();
 	UINT GetWriteContainerSize();
 	UINT GetReadContainerSize();
 
-
-
-public:
-	virtual void OnAccept(SOCKET socket) {};
-	virtual void OnConnect(SOCKET socket) {};
-	virtual void OnReceive() {};
-	virtual void OnClose() {};
 };
 
