@@ -39,7 +39,7 @@ bool CIocp::InitSocket(CSType csType, UINT port)
 
 	isConnected = true;
 
-	//¹öÆÛ ÇÒ´ç
+	//ë²„í¼ í• ë‹¹
 	readBuff = new std::vector<PacketInfo>;
 	writeBuff = new std::vector<PacketInfo>;
 
@@ -48,15 +48,15 @@ bool CIocp::InitSocket(CSType csType, UINT port)
 
 	readBuff->resize(1);
 	writeBuff->resize(1);
-	//À©¼Ó ÃÊ±âÈ­
+	//ìœˆì† ì´ˆê¸°í™”
 	if ((retVal = WSAStartup(MAKEWORD(2, 2), &wsaData)) != 0)
 	{
 		std::cout << "WSAStartup fail" << std::endl;
 		return false;
 	}
 
-	//iocp°´Ã¼ »ı¼º
-	//CreateIoCompletionPort¸¶Áö¸· ÀÎÀÚ°¡ 0ÀÌ¸é cpu ÄÚ¾î °³¼ö¸¸Å­ ½º·¹µå ÀÌ¿ë
+	//iocpê°ì²´ ìƒì„±
+	//CreateIoCompletionPortë§ˆì§€ë§‰ ì¸ìê°€ 0ì´ë©´ cpu ì½”ì–´ ê°œìˆ˜ë§Œí¼ ìŠ¤ë ˆë“œ ì´ìš©
 	if ((completionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0)) == NULL)
 	{
 		std::cout << "CreateIoCompletionPort fail" << std::endl;
@@ -64,13 +64,13 @@ bool CIocp::InitSocket(CSType csType, UINT port)
 	}
 
 
-	//¿öÄ¿½º·¹µå »ı¼º
+	//ì›Œì»¤ìŠ¤ë ˆë“œ ìƒì„±
 	CreateWorkerThread();
 
-	//ÆĞÅ¶ Ã³¸® ½º·¹µå »ı¼º
+	//íŒ¨í‚· ì²˜ë¦¬ ìŠ¤ë ˆë“œ ìƒì„±
 	//CreatePacketProcessThread();
 
-	//Å¬¶óÀÌ¾ğÆ®µµ ConnectEx µîÀÇ ÇÔ¼öÀÇ Æ÷ÀÎÅÍ¸¦ ¾ò±â À§ÇØ ÀÓÀÇÀÇ ¼ÒÄÏÀÌ ÇÊ¿äÇÔ.
+	//í´ë¼ì´ì–¸íŠ¸ë„ ConnectEx ë“±ì˜ í•¨ìˆ˜ì˜ í¬ì¸í„°ë¥¼ ì–»ê¸° ìœ„í•´ ì„ì˜ì˜ ì†Œì¼“ì´ í•„ìš”í•¨.
 	if ((m_listenSocket = WSASocket(AF_INET,
 		SOCK_STREAM,
 		IPPROTO_TCP,
@@ -83,7 +83,7 @@ bool CIocp::InitSocket(CSType csType, UINT port)
 		return false;
 	}
 
-	//AcceptEx ÇÔ¼ö ¾µ ¼ö ÀÖµµ·Ï µî·Ï
+	//AcceptEx í•¨ìˆ˜ ì“¸ ìˆ˜ ìˆë„ë¡ ë“±ë¡
 	lpfnAcceptEx = NULL;
 	GUID guidAcceptEx = WSAID_ACCEPTEX;
 	DWORD dwBytes = 0;
@@ -102,7 +102,7 @@ bool CIocp::InitSocket(CSType csType, UINT port)
 	}
 
 
-	//DisconnectEx ÇÔ¼ö ¾µ ¼ö ÀÖµµ·Ï µî·Ï
+	//DisconnectEx í•¨ìˆ˜ ì“¸ ìˆ˜ ìˆë„ë¡ ë“±ë¡
 	lpfnDisconnectEx = NULL;
 	GUID guidDiconnectEx = WSAID_DISCONNECTEX;
 	dwBytes = 0;
@@ -120,7 +120,7 @@ bool CIocp::InitSocket(CSType csType, UINT port)
 		std::cout << "DisConnectEx WsaIoctl Error:" << WSAGetLastError() << std::endl;
 	}
 
-	//ConnectEx ÇÔ¼ö ¾µ ¼ö ÀÖµµ·Ï µî·Ï
+	//ConnectEx í•¨ìˆ˜ ì“¸ ìˆ˜ ìˆë„ë¡ ë“±ë¡
 	lpfnConnectEx = NULL;
 	GUID guidConnectEx = WSAID_CONNECTEX;
 	dwBytes = 0;
@@ -138,10 +138,10 @@ bool CIocp::InitSocket(CSType csType, UINT port)
 		std::cout << "ConnectEx WsaIoctl Error:" << WSAGetLastError() << std::endl;
 	}
 
-	//¾Æ·¡·Î´Â ¼­¹ö ÃÊ±âÈ­
+	//ì•„ë˜ë¡œëŠ” ì„œë²„ ì´ˆê¸°í™”
 	if (csType == CSType::CLIENT) return true;
 
-	//listen ¼ÒÄÏ iocp ¿¬°á
+	//listen ì†Œì¼“ iocp ì—°ê²°
 	if (CreateIoCompletionPort((HANDLE)m_listenSocket,
 		completionPort,
 		(ULONG_PTR)this,
@@ -157,7 +157,7 @@ bool CIocp::InitSocket(CSType csType, UINT port)
 	serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serverAddr.sin_port = htons(port);
 
-	//TCPÈ¦ÆİÄª ÀÌ¹Ì »ç¿ëÁßÀÎ Æ÷Æ®¿¡ ´Ù¸¥ ¼ÒÄÏ °­Á¦ ¹ÙÀÎµù 
+	//TCPí™€í€ì¹­ ì´ë¯¸ ì‚¬ìš©ì¤‘ì¸ í¬íŠ¸ì— ë‹¤ë¥¸ ì†Œì¼“ ê°•ì œ ë°”ì¸ë”© 
 	SetReuseSocketOpt(m_listenSocket);
 
 	if (bind(m_listenSocket,
@@ -174,7 +174,7 @@ bool CIocp::InitSocket(CSType csType, UINT port)
 		std::cout << "listen fail" << std::endl;
 	}
 
-	//Æ÷Æ®¸¦ 0À¸·Î ¹ÙÀÎµå ÇßÀ» °æ¿ì ÇÒ´çÇØÁØ Æ÷Æ®¸¦ ¾Ë¾Æ³½´Ù. 
+	//í¬íŠ¸ë¥¼ 0ìœ¼ë¡œ ë°”ì¸ë“œ í–ˆì„ ê²½ìš° í• ë‹¹í•´ì¤€ í¬íŠ¸ë¥¼ ì•Œì•„ë‚¸ë‹¤. 
 	SOCKADDR_IN sin;
 	socklen_t len = sizeof(sin);
 	if (getsockname(m_listenSocket, (SOCKADDR*)&sin, &len) != -1) 
@@ -195,7 +195,7 @@ void CIocp::InitSocketOption(SOCKET socket)
 
 void CIocp::SetReuseSocketOpt(SOCKET socket)
 {
-	//socket Reuse Option. SO_REUSEADDRÀº ¼­¹ö ¼ÒÄÏ¿¡¼­¸¸ time_wait¸¦ ÀçÈ°¿ë ÇÒ ¼ö ÀÖ´Â °Í °°´Ù.
+	//socket Reuse Option. SO_REUSEADDRì€ ì„œë²„ ì†Œì¼“ì—ì„œë§Œ time_waitë¥¼ ì¬í™œìš© í•  ìˆ˜ ìˆëŠ” ê²ƒ ê°™ë‹¤.
 	int option = 1;
 	if (setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, (char*)&option, sizeof(int)) == SOCKET_ERROR)
 	{
@@ -205,9 +205,9 @@ void CIocp::SetReuseSocketOpt(SOCKET socket)
 
 void CIocp::SetLingerOpt(SOCKET socket)
 {
-	//onoff 0 - default ¼ÒÄÏ¹öÆÛ¿¡ ³²Àº µ¥ÀÌÅÍ¸¦ ÀüºÎ º¸³»°í Á¾·áÇÏ´Â Á¤»óÁ¾·á
-	//onoff 1 linger 0 - close Áï½Ã ¸®ÅÏÇÏ°í ¼ÒÄÏ¹öÆÛ¿¡ ³²Àº µ¥ÀÌÅÍ¸¦ ¹ö¸®´Â ºñÁ¤»óÁ¾·á.
-	//onoff 1 linger 1 - ÁöÁ¤½Ã°£µ¿¾È ´ë±âÇÑ µÚ ¼ÒÄÏ¹öÆÛ¿¡ ³²Àº µ¥ÀÌÅÍ¸¦ ÀüºÎ º¸³»º¸°í ´Ù º¸³»¸é Á¤»óÁ¾·á ÇÏ¸ç ¸®ÅÏ ¸ø º¸³»¸é ºñÁ¤»óÁ¾·á ¿¡·¯¿Í ÇÔ²² ¸®ÅÏ.
+	//onoff 0 - default ì†Œì¼“ë²„í¼ì— ë‚¨ì€ ë°ì´í„°ë¥¼ ì „ë¶€ ë³´ë‚´ê³  ì¢…ë£Œí•˜ëŠ” ì •ìƒì¢…ë£Œ
+	//onoff 1 linger 0 - close ì¦‰ì‹œ ë¦¬í„´í•˜ê³  ì†Œì¼“ë²„í¼ì— ë‚¨ì€ ë°ì´í„°ë¥¼ ë²„ë¦¬ëŠ” ë¹„ì •ìƒì¢…ë£Œ.
+	//onoff 1 linger 1 - ì§€ì •ì‹œê°„ë™ì•ˆ ëŒ€ê¸°í•œ ë’¤ ì†Œì¼“ë²„í¼ì— ë‚¨ì€ ë°ì´í„°ë¥¼ ì „ë¶€ ë³´ë‚´ë³´ê³  ë‹¤ ë³´ë‚´ë©´ ì •ìƒì¢…ë£Œ í•˜ë©° ë¦¬í„´ ëª» ë³´ë‚´ë©´ ë¹„ì •ìƒì¢…ë£Œ ì—ëŸ¬ì™€ í•¨ê»˜ ë¦¬í„´.
 	LINGER linger = { 0,0 };
 	linger.l_onoff = 1;
 	linger.l_linger = 0;
@@ -217,31 +217,31 @@ void CIocp::SetLingerOpt(SOCKET socket)
 
 void CIocp::SetNagleOffOpt(SOCKET socket)
 {
-	int nagleOpt = 1; //1 ºñÈ°¼ºÈ­ 0 È°¼ºÈ­
+	int nagleOpt = 1; //1 ë¹„í™œì„±í™” 0 í™œì„±í™”
 	setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, (const char*)&nagleOpt, sizeof(nagleOpt));
 }
 
 bool CIocp::CreateWorkerThread()
 {
-	HANDLE threadHandle; //¿öÄ¿½º·¹µå ÇÚµé
+	HANDLE threadHandle; //ì›Œì»¤ìŠ¤ë ˆë“œ í•¸ë“¤
 	DWORD threadID;
 
 	bIsWorkerThread = true;
 
-	//cpu °³¼ö È®ÀÎ
+	//cpu ê°œìˆ˜ í™•ì¸
 	GetSystemInfo(&sysInfo);
 
 	dwLockNum = sysInfo.dwNumberOfProcessors * 2;
-	//SRWLock »ı¼º ¹× ÃÊ±âÈ­.
+	//SRWLock ìƒì„± ë° ì´ˆê¸°í™”.
 	m_BufferSwapLock = new SRWLOCK[dwLockNum];
 	for (DWORD i = 0; i < dwLockNum; i++) 
 	{
 		InitializeSRWLock(m_BufferSwapLock + i);
 	}
-	//½º·¹µå ¾ÆÀÌµğ ¹è¿­¿¡ ÀúÀå
+	//ìŠ¤ë ˆë“œ ì•„ì´ë”” ë°°ì—´ì— ì €ì¥
 	m_ThreadIdArr = new DWORD[dwLockNum];
 
-	//(CPU °³¼ö * 2)°³ÀÇ ¿öÄ¿ ½º·¹µå »ı¼º
+	//(CPU ê°œìˆ˜ * 2)ê°œì˜ ì›Œì»¤ ìŠ¤ë ˆë“œ ìƒì„±
 	for (DWORD i = 0; i < sysInfo.dwNumberOfProcessors * 2; i++)
 	{
 		if ((threadHandle = (HANDLE)_beginthreadex(NULL,
@@ -261,7 +261,7 @@ bool CIocp::CreateWorkerThread()
 	return true;
 }
 
-//Overlapped IO ÀÛ¾÷ ¿Ï·á Åëº¸¸¦ ¹Ş¾Æ Ã³¸®ÇÏ´Â ¿öÄ¿ ½º·¹µå
+//Overlapped IO ì‘ì—… ì™„ë£Œ í†µë³´ë¥¼ ë°›ì•„ ì²˜ë¦¬í•˜ëŠ” ì›Œì»¤ ìŠ¤ë ˆë“œ
 unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 {
 	CIocp* arg = (CIocp*)CompletionPortObj;
@@ -274,7 +274,7 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 	DWORD dwLockIndex = 0;
 	DWORD currentThreadId = GetCurrentThreadId();
 
-	//½º·¹µå ¾ÆÀÌµğ¸¦ ºñ±³ÇØ¼­ ½º·¹µå°¡ °¡Áú ¶ô ÀÎµ¦½º¸¦ °¡Áø´Ù.
+	//ìŠ¤ë ˆë“œ ì•„ì´ë””ë¥¼ ë¹„êµí•´ì„œ ìŠ¤ë ˆë“œê°€ ê°€ì§ˆ ë½ ì¸ë±ìŠ¤ë¥¼ ê°€ì§„ë‹¤.
 	for (DWORD i = 0; i < arg->dwLockNum; i++) 
 	{
 		if (arg->m_ThreadIdArr[i] == currentThreadId)
@@ -284,10 +284,10 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 
 	while (arg->bIsWorkerThread)
 	{
-		if (GetQueuedCompletionStatus(completionport, //CompletionPort ÇÚµé
-			&transferredBytes,				//ºñµ¿±â ÀÔÃâ·Â ÀÛ¾÷À¸·Î Àü¼ÛµÈ ¹ÙÀÌÆ®
-			(PULONG_PTR)&key,			//CreateIoCompletionPortÇÔ¼ö È£Ãâ½Ã Àü´ŞÇÑ ¼¼¹øÂ° ÀÎÀÚ°¡ ¿©±â ÀúÀå
-			&lpOverlapped,			//ºñµ¿±â ÀÔÃâ·Â ÇÔ¼ö È£Ãâ ½Ã Àü´ŞÇÑ ¿À¹ö·¦ ±¸Á¶Ã¼ ÁÖ¼Ò°ª.
+		if (GetQueuedCompletionStatus(completionport, //CompletionPort í•¸ë“¤
+			&transferredBytes,				//ë¹„ë™ê¸° ì…ì¶œë ¥ ì‘ì—…ìœ¼ë¡œ ì „ì†¡ëœ ë°”ì´íŠ¸
+			(PULONG_PTR)&key,			//CreateIoCompletionPortí•¨ìˆ˜ í˜¸ì¶œì‹œ ì „ë‹¬í•œ ì„¸ë²ˆì§¸ ì¸ìê°€ ì—¬ê¸° ì €ì¥
+			&lpOverlapped,			//ë¹„ë™ê¸° ì…ì¶œë ¥ í•¨ìˆ˜ í˜¸ì¶œ ì‹œ ì „ë‹¬í•œ ì˜¤ë²„ë© êµ¬ì¡°ì²´ ì£¼ì†Œê°’.
 			INFINITE) == 0)
 		{
 			CIocp* piocp = (CIocp*)key;
@@ -309,12 +309,12 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 		//std::cout << "trnasferredbytes = " << transferredBytes << std::endl;
 		//std::cout << "iotype = " << (int)pioData->ioType << std::endl;
 		//DWORD currentThreadId = GetCurrentThreadId();
-		if (pioData->ioType == IOType::ACCEPT) { std::cout << currentThreadId << "¹ø ½º·¹µå iotype = accept\n"; }
-		else if (pioData->ioType == IOType::CONNECT) { std::cout << currentThreadId << "¹ø ½º·¹µå iotype = connect\n"; }
-		else if (pioData->ioType == IOType::DISCONNECT) { std::cout << currentThreadId << "¹ø ½º·¹µå iotype = disconnect\n"; }
-		//else if (pioData->ioType == IOType::RECV) { std::cout << currentThreadId << "¹ø ½º·¹µå iotype = recv\n"; }
-		//else if (pioData->ioType == IOType::SEND) { std::cout << currentThreadId << "¹ø ½º·¹µå iotype = send\n"; }
-		//std::cout << currentThreadId << "¹ø ½º·¹µå iotype = " << (int)pioData->ioType << std::endl;
+		if (pioData->ioType == IOType::ACCEPT) { std::cout << currentThreadId << "ë²ˆ ìŠ¤ë ˆë“œ iotype = accept\n"; }
+		else if (pioData->ioType == IOType::CONNECT) { std::cout << currentThreadId << "ë²ˆ ìŠ¤ë ˆë“œ iotype = connect\n"; }
+		else if (pioData->ioType == IOType::DISCONNECT) { std::cout << currentThreadId << "ë²ˆ ìŠ¤ë ˆë“œ iotype = disconnect\n"; }
+		//else if (pioData->ioType == IOType::RECV) { std::cout << currentThreadId << "ë²ˆ ìŠ¤ë ˆë“œ iotype = recv\n"; }
+		//else if (pioData->ioType == IOType::SEND) { std::cout << currentThreadId << "ë²ˆ ìŠ¤ë ˆë“œ iotype = send\n"; }
+		//std::cout << currentThreadId << "ë²ˆ ìŠ¤ë ˆë“œ iotype = " << (int)pioData->ioType << std::endl;
 
 		
 
@@ -335,8 +335,8 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 		}
 		if (pioData->ioType == IOType::DISCONNECT)
 		{
-			//¼­¹ö´Â ReAccecptExÇÏ¸é¼­ Å¬¶óÀÌ¾ğÆ®´Â ¼ÒÄÏÀ» ´Ù½Ã ÇÒ´çÇÏ¸é¼­ InitConnectPool¿¡¼­ isConnected¸¦ falseÃ³¸®ÇÏ±â ¶§¹®¿¡ ¿©±â¼­ ÇÏÁö ¾Ê´Â´Ù.
-			//Å¬¶ó´Â isConnectedÀÎ ¼ÒÄÏÀÌ ¾øÀ¸¸é ´Ù½Ã ¼ÒÄÏÀ» Ä¿³Ø¼Ç ¼ö ¸¸Å­ ¸¸µé±â ¶§¹®¿¡ ÆÇ´ÜÇÏ±â À§ÇØ¼­ false·Î ¸¸µéÁö ¾Ê´Â´Ù.
+			//ì„œë²„ëŠ” ReAccecptExí•˜ë©´ì„œ í´ë¼ì´ì–¸íŠ¸ëŠ” ì†Œì¼“ì„ ë‹¤ì‹œ í• ë‹¹í•˜ë©´ì„œ InitConnectPoolì—ì„œ isConnectedë¥¼ falseì²˜ë¦¬í•˜ê¸° ë•Œë¬¸ì— ì—¬ê¸°ì„œ í•˜ì§€ ì•ŠëŠ”ë‹¤.
+			//í´ë¼ëŠ” isConnectedì¸ ì†Œì¼“ì´ ì—†ìœ¼ë©´ ë‹¤ì‹œ ì†Œì¼“ì„ ì»¤ë„¥ì…˜ ìˆ˜ ë§Œí¼ ë§Œë“¤ê¸° ë•Œë¬¸ì— íŒë‹¨í•˜ê¸° ìœ„í•´ì„œ falseë¡œ ë§Œë“¤ì§€ ì•ŠëŠ”ë‹¤.
 			//piocp->isConnected = false;
 			std::string sSocket = std::to_string(piocp->m_socket);
 			std::cout << "Closing socket " + sSocket << std::endl;
@@ -345,7 +345,7 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 				arg->ReAcceptSocket(piocp->m_socket);
 			continue;
 		}
-		//GetQueuedCompletionStatus ÇØ¼­ °¡Á®¿À´Âµ¥ ¼º°øÇß´Âµ¥ Àü´Ş¹ŞÀº ÆĞÅ¶ÀÌ 0ÀÌ¸é Á¢¼ÓÀÌ ²÷±ä °ÍÀ¸·Î.
+		//GetQueuedCompletionStatus í•´ì„œ ê°€ì ¸ì˜¤ëŠ”ë° ì„±ê³µí–ˆëŠ”ë° ì „ë‹¬ë°›ì€ íŒ¨í‚·ì´ 0ì´ë©´ ì ‘ì†ì´ ëŠê¸´ ê²ƒìœ¼ë¡œ.
 		if (transferredBytes == 0 && pioData->ioType != IOType::ACCEPT && pioData->ioType != IOType::CONNECT)
 		{
 			//piocp->OnClose();
@@ -356,11 +356,11 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 		}
 
 
-		//recv send ±¸ºĞ
-		//ºñµ¿±â ÀÔÃâ·Â¿¡¼­ ¿À¹ö·¦±¸Á¶Ã¼¸¦ ÀÎÀÚ·Î Àü´ŞÇÒ ¶§ ¿À¹ö·¦±¸Á¶Ã¼¸¦ ¸â¹ö·Î °¡Áø ±¸Á¶Ã¼¸¦ ¿À¹ö·¦À¸·Î Ä³½ºÆÃÇØ¼­ º¸³»°í
-		//GetQueuedCompletionStatus¿¡¼­ ¹ŞÀº ¿À¹ö·¦ ±¸Á¶Ã¼¸¦ ´Ù½Ã ¿ø·¡ ±¸Á¶Ã¼·Î Ä³½ºÆÃÇÏ¸é ´Ù¸¥ ¸â¹öµµ ¹Ş¾Æ¿Ã ¼ö ÀÖ´Ù.
-		//±×·± ¹æ¹ıÀ¸·Î IOType EnumÀ» ³¢¾î³Ö¾î¼­ ¹Ş¾Æ¿Í¼­ ±¸ºĞÁş´Â´Ù.
-		//GetQueuedCompletionStatus ¿¡ µé¾î¿À´Â key °ª¿¡´Ù°¡ °´Ã¼ ÁÖ¼Ò¸¦ ³Ñ°Ü¹Ş¾Æ¼­ °¡Á®¿Â´Ù. 
+		//recv send êµ¬ë¶„
+		//ë¹„ë™ê¸° ì…ì¶œë ¥ì—ì„œ ì˜¤ë²„ë©êµ¬ì¡°ì²´ë¥¼ ì¸ìë¡œ ì „ë‹¬í•  ë•Œ ì˜¤ë²„ë©êµ¬ì¡°ì²´ë¥¼ ë©¤ë²„ë¡œ ê°€ì§„ êµ¬ì¡°ì²´ë¥¼ ì˜¤ë²„ë©ìœ¼ë¡œ ìºìŠ¤íŒ…í•´ì„œ ë³´ë‚´ê³ 
+		//GetQueuedCompletionStatusì—ì„œ ë°›ì€ ì˜¤ë²„ë© êµ¬ì¡°ì²´ë¥¼ ë‹¤ì‹œ ì›ë˜ êµ¬ì¡°ì²´ë¡œ ìºìŠ¤íŒ…í•˜ë©´ ë‹¤ë¥¸ ë©¤ë²„ë„ ë°›ì•„ì˜¬ ìˆ˜ ìˆë‹¤.
+		//ê·¸ëŸ° ë°©ë²•ìœ¼ë¡œ IOType Enumì„ ë¼ì–´ë„£ì–´ì„œ ë°›ì•„ì™€ì„œ êµ¬ë¶„ì§“ëŠ”ë‹¤.
+		//GetQueuedCompletionStatus ì— ë“¤ì–´ì˜¤ëŠ” key ê°’ì—ë‹¤ê°€ ê°ì²´ ì£¼ì†Œë¥¼ ë„˜ê²¨ë°›ì•„ì„œ ê°€ì ¸ì˜¨ë‹¤. 
 
 		if (pioData->ioType == IOType::ACCEPT)
 		{
@@ -388,7 +388,7 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 			std::string sRemotePort = std::to_string(ntohs(remoteAddr->sin_port));
 
 			static int a = 1;
-			std::cout << "Á¢¼Ó °³¼ö= " << a << "¼ÒÄÏ ³Ñ¹ö=" + sSocket + "Å¬¶óÀÌ¾ğÆ® Á¢¼Ó:IP ÁÖ¼Ò=" + sRemoteAddr + "Æ÷Æ® ¹øÈ£=" + sRemotePort << std::endl;
+			std::cout << "ì ‘ì† ê°œìˆ˜= " << a << "ì†Œì¼“ ë„˜ë²„=" + sSocket + "í´ë¼ì´ì–¸íŠ¸ ì ‘ì†:IP ì£¼ì†Œ=" + sRemoteAddr + "í¬íŠ¸ ë²ˆí˜¸=" + sRemotePort << std::endl;
 			a++;
 
 			piocp->OnAccept(pioData->connectSocket);
@@ -404,7 +404,7 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 
 		else if (pioData->ioType == IOType::RECV)
 		{
-			//std::cout << *(int*)(pioData->Buff + 4) << "¹ø ÆĞÅ¶ " << transferredBytes << "¹ÙÀÌÆ® ¼ö½Å" << std::endl;
+			//std::cout << *(int*)(pioData->Buff + 4) << "ë²ˆ íŒ¨í‚· " << transferredBytes << "ë°”ì´íŠ¸ ìˆ˜ì‹ " << std::endl;
 
 			piocp->ioBuffPos = transferredBytes;
 
@@ -412,10 +412,10 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 			packetInfo.connection = piocp;
 			while (1) 
 			{
-				//¸®½Ãºê ¹öÆÛ¿¡ ³²Àº ÆĞÅ¶ÀÌ ÀÖÀ¸¸é iobuffer¿¡ ÀÖ´Â °ÍÀÌ ÆĞÅ¶ÀÇ ½ÃÀÛºÎºĞÀÌ ¾Æ´Ï¶ó°í º½.
+				//ë¦¬ì‹œë¸Œ ë²„í¼ì— ë‚¨ì€ íŒ¨í‚·ì´ ìˆìœ¼ë©´ iobufferì— ìˆëŠ” ê²ƒì´ íŒ¨í‚·ì˜ ì‹œì‘ë¶€ë¶„ì´ ì•„ë‹ˆë¼ê³  ë´„.
 				if(piocp->recvBuffPos > 0)
 				{
-					//¸®½Ãºê¹öÆÛ¿¡¼­ 4¹ÙÀÌÆ® ÀĞÀº Å©±â°¡ ¸®½Ãºê ¹öÆÛ¿Í io¹öÆÛÀÇ Å©±âº¸´Ù Å©¸é ÂÉ°³Á®¼­ ´ú ¹ŞÀº ÆĞÅ¶À¸·Î ÆÇ´Ü.
+					//ë¦¬ì‹œë¸Œë²„í¼ì—ì„œ 4ë°”ì´íŠ¸ ì½ì€ í¬ê¸°ê°€ ë¦¬ì‹œë¸Œ ë²„í¼ì™€ ioë²„í¼ì˜ í¬ê¸°ë³´ë‹¤ í¬ë©´ ìª¼ê°œì ¸ì„œ ëœ ë°›ì€ íŒ¨í‚·ìœ¼ë¡œ íŒë‹¨.
 					if (*(int*)piocp->recvBuff > piocp->recvBuffPos + piocp->ioBuffPos) 
 					{
 						memcpy(piocp->recvBuff + piocp->recvBuffPos, pioData->Buff, piocp->ioBuffPos);
@@ -423,40 +423,40 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 						piocp->ioBuffPos = 0;
 						goto MAKEPACKETEND;
 					}
-					//Â©·Á¼­ µÚ¿¡ µé¾î¿Â ÆĞÅ¶ºÎºĞÀ» ¸®½Ãºê ¹öÆÛ¿¡ ÀÌ¾îÁØ´Ù.
+					//ì§¤ë ¤ì„œ ë’¤ì— ë“¤ì–´ì˜¨ íŒ¨í‚·ë¶€ë¶„ì„ ë¦¬ì‹œë¸Œ ë²„í¼ì— ì´ì–´ì¤€ë‹¤.
 					memcpy(piocp->recvBuff + piocp->recvBuffPos, pioData->Buff, *(int*)piocp->recvBuff - piocp->recvBuffPos);
-					//ÆĞÅ¶À» ¸¸µé¾î¼­ ¶óÀÌÆ®¹öÆÛ¿¡ ³Ö¾îÁØ´Ù.
+					//íŒ¨í‚·ì„ ë§Œë“¤ì–´ì„œ ë¼ì´íŠ¸ë²„í¼ì— ë„£ì–´ì¤€ë‹¤.
 					memcpy(packetInfo.Buff, piocp->recvBuff, *(int*)piocp->recvBuff);
 					arg->PushWriteBuffer(&packetInfo, dwLockIndex);
-					//io¹öÆÛ¿¡¼­ ¸®½Ãºê ¹öÆÛ·Î ³Ñ°ÜÁØ ¸¸Å­ ¶¯°ÜÁØ´Ù.
+					//ioë²„í¼ì—ì„œ ë¦¬ì‹œë¸Œ ë²„í¼ë¡œ ë„˜ê²¨ì¤€ ë§Œí¼ ë•¡ê²¨ì¤€ë‹¤.
 					memmove(pioData->Buff, pioData->Buff + *(int*)piocp->recvBuff - piocp->recvBuffPos, sizeof(pioData->Buff) - (*(int*)piocp->recvBuff - piocp->recvBuffPos));
 					piocp->ioBuffPos -= *(int*)piocp->recvBuff - piocp->recvBuffPos;
-					//¸®½Ãºê ¹öÆÛ¸¦ ºñ¿öÁØ´Ù.
+					//ë¦¬ì‹œë¸Œ ë²„í¼ë¥¼ ë¹„ì›Œì¤€ë‹¤.
 					ZeroMemory(piocp->recvBuff, _msize(piocp->recvBuff));
 					piocp->recvBuffPos = 0;
 				}
 
-				//ÆĞÅ¶ÀÇ »çÀÌÁî°¡ io¹öÆÛ À§Ä¡º¸´Ù Å©¸é µÚ¿¡ ´õ ¹ŞÀ» ÆĞÅ¶ÀÌ ÀÖ´Ù°í º¸°í ¸®½Ãºê ¹öÆÛ¿¡ ºÒ¿ÏÀüÇÑ ÆĞÅ¶ ÀúÀå.
+				//íŒ¨í‚·ì˜ ì‚¬ì´ì¦ˆê°€ ioë²„í¼ ìœ„ì¹˜ë³´ë‹¤ í¬ë©´ ë’¤ì— ë” ë°›ì„ íŒ¨í‚·ì´ ìˆë‹¤ê³  ë³´ê³  ë¦¬ì‹œë¸Œ ë²„í¼ì— ë¶ˆì™„ì „í•œ íŒ¨í‚· ì €ì¥.
 				if (piocp->ioBuffPos < *(int*)pioData->Buff)
 				{
-					//¸®½Ãºê ¹öÆÛ¿¡ ºÒ¿ÏÀü ÆĞÅ¶ ÀúÀå.
+					//ë¦¬ì‹œë¸Œ ë²„í¼ì— ë¶ˆì™„ì „ íŒ¨í‚· ì €ì¥.
 					memcpy(piocp->recvBuff + piocp->recvBuffPos, pioData->Buff, piocp->ioBuffPos);
 					piocp->recvBuffPos += piocp->ioBuffPos;
-					//ºÒ¿ÏÀüÇÑ ÆĞÅ¶ º¸³»°í ³ª¸ÓÁö¸¦ ¶¯±ä´Ù.
+					//ë¶ˆì™„ì „í•œ íŒ¨í‚· ë³´ë‚´ê³  ë‚˜ë¨¸ì§€ë¥¼ ë•¡ê¸´ë‹¤.
 					memmove(pioData->Buff, pioData->Buff + piocp->ioBuffPos, sizeof(pioData->Buff) - piocp->ioBuffPos);
-					//¶¯±ä ³ª¸ÓÁö ºÎºĞÀ» 0À¸·Î Ã¤¿öÁØ´Ù.
+					//ë•¡ê¸´ ë‚˜ë¨¸ì§€ ë¶€ë¶„ì„ 0ìœ¼ë¡œ ì±„ì›Œì¤€ë‹¤.
 					ZeroMemory(pioData->Buff + (sizeof(pioData->Buff) - piocp->ioBuffPos), piocp->ioBuffPos);
 					piocp->ioBuffPos = 0;
 					goto MAKEPACKETEND;
 				}
 
-				//ÆĞÅ¶ÀÌ ½ÃÀÛºÎºĞÀÌ¶ó°í º¸°í.
+				//íŒ¨í‚·ì´ ì‹œì‘ë¶€ë¶„ì´ë¼ê³  ë³´ê³ .
 				int packetSize = *(int*)pioData->Buff;
 
 				if(packetSize == 0)
 					goto MAKEPACKETEND;
 
-				//ÆĞÅ¶À» ¸¸µé¾î¼­ ¶óÀÌÆ® ¹öÆÛ¿¡ ÀúÀå. 
+				//íŒ¨í‚·ì„ ë§Œë“¤ì–´ì„œ ë¼ì´íŠ¸ ë²„í¼ì— ì €ì¥. 
 				memcpy(packetInfo.Buff, pioData->Buff, packetSize);
 				arg->PushWriteBuffer(&packetInfo, dwLockIndex);
 				piocp->ioBuffPos -= packetSize;
@@ -468,17 +468,17 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 			arg->RecvSet(piocp);
 		}
 
-		//ºñµ¿±â ¼Û½Å ÀÌÈÄ ¼Û½ÅÇß´Ù´Â °á°ú¸¦ ÅëÁö¹ŞÀ» »Ó
+		//ë¹„ë™ê¸° ì†¡ì‹  ì´í›„ ì†¡ì‹ í–ˆë‹¤ëŠ” ê²°ê³¼ë¥¼ í†µì§€ë°›ì„ ë¿
 		else if (pioData->ioType == IOType::SEND)
 		{
-			//std::cout << *(int*)(pioData->Buff + 4) << "¹ø ÆĞÅ¶ " << transferredBytes << "¹ÙÀÌÆ® ¼Û½Å" << std::endl;
+			//std::cout << *(int*)(pioData->Buff + 4) << "ë²ˆ íŒ¨í‚· " << transferredBytes << "ë°”ì´íŠ¸ ì†¡ì‹ " << std::endl;
 			delete pioData;
 		}
 
 	}
 	//DWORD currentThreadId = GetCurrentThreadId();
 	CString ds;
-	ds.Format(L"%d ½º·¹µå Á¾·á\n", currentThreadId);
+	ds.Format(L"%d ìŠ¤ë ˆë“œ ì¢…ë£Œ\n", currentThreadId);
 	OutputDebugStringW(ds);
 	_endthreadex(0);
 
@@ -489,16 +489,16 @@ void CIocp::PacketProcess()
 {
 	while (1)
 	{
-		//¸®µå ¹öÆÛ ´Ù Ã³¸®Çß°í, ¶óÀÌÆ®¹öÆÛ¿¡ ³²¾ÆÀÖÀ¸¸é ½º¿Ò.
+		//ë¦¬ë“œ ë²„í¼ ë‹¤ ì²˜ë¦¬í–ˆê³ , ë¼ì´íŠ¸ë²„í¼ì— ë‚¨ì•„ìˆìœ¼ë©´ ìŠ¤ì™‘.
 		if (this->readBuffPos >= this->GetReadContainerSize() && this->GetWriteContainerSize() != 0)
 		{
 			this->SwapRWBuffer();
 		}
 
-		//¸®µå¹öÆÛ ´Ù Ã³¸®ÇßÀ¸¸é ½ºÅµ.
+		//ë¦¬ë“œë²„í¼ ë‹¤ ì²˜ë¦¬í–ˆìœ¼ë©´ ìŠ¤í‚µ.
 		if (this->readBuffPos >= this->GetReadContainerSize()) break;
 
-		//std::cout << "read¹öÆÛ size = " << this->GetReadContainerSize() << std::endl;
+		//std::cout << "readë²„í¼ size = " << this->GetReadContainerSize() << std::endl;
 
 		PacketInfo packetInfo = (*this->readBuff)[this->readBuffPos];
 
@@ -506,7 +506,7 @@ void CIocp::PacketProcess()
 			continue;
 
 		/*char log[24];
-		sprintf_s(log, "%d ÆĞÅ¶ Ã³¸®\n", *(int*)(packetInfo.Buff + 4));
+		sprintf_s(log, "%d íŒ¨í‚· ì²˜ë¦¬\n", *(int*)(packetInfo.Buff + 4));
 		OutputDebugStringA(log);*/
 		packetInfo.connection->OnReceive();
 		this->readBuffPos++;
@@ -542,13 +542,13 @@ void CIocp::SwapRWBuffer()
 		AcquireSRWLockExclusive(m_BufferSwapLock + i);
 	}
 
-	//std::cout << "½º¿Ò Àü read¹öÆÛ size = " << GetReadContainerSize() << " write¹öÆÛ size = " << GetWriteContainerSize() << std::endl;
+	//std::cout << "ìŠ¤ì™‘ ì „ readë²„í¼ size = " << GetReadContainerSize() << " writeë²„í¼ size = " << GetWriteContainerSize() << std::endl;
 	readBuff->clear();
 
 	auto tempBuff = writeBuff;
 	writeBuff = readBuff;
 	readBuff = tempBuff;
-	//std::cout << "½º¿Ò ÈÄ read¹öÆÛ size = " << GetReadContainerSize() << " write¹öÆÛ size = " << GetWriteContainerSize() << std::endl;
+	//std::cout << "ìŠ¤ì™‘ í›„ readë²„í¼ size = " << GetReadContainerSize() << " writeë²„í¼ size = " << GetWriteContainerSize() << std::endl;
 	InterlockedExchange(&ilWriteBuffPos, -1);
 	readBuffPos = 0;
 
@@ -560,12 +560,12 @@ void CIocp::SwapRWBuffer()
 
 void CIocp::PushWriteBuffer(PacketInfo* packetInfo, DWORD dwLockIndex)
 {
-	//Å¥¿¡ ÀÎÅÍ¶ôÀÇ À§Ä¡°¡ ÇÒ´çµÇ¾î ÀÖÁö ¾Ê´Ù¸é Å©±â 2¹è Áõ°¡.
-	//dequeÀÇ °æ¿ì ¸Ş¸ğ¸®°¡ ¿¬¼ÓÀûÀ¸·Î ÇÒ´çµÇ¾îÀÖÁö ¾Ê±â ¶§¹®¿¡ reserve ÇÔ¼ö´Â ¾øÀ½.
-	//resize´Â ¸Ş¸ğ¸® Å©±â¿Í µ¿½Ã¿¡ ¿ä¼ÒµéÀÇ ÃÊ±âÈ­µµ ÀÏ¾î³².
+	//íì— ì¸í„°ë½ì˜ ìœ„ì¹˜ê°€ í• ë‹¹ë˜ì–´ ìˆì§€ ì•Šë‹¤ë©´ í¬ê¸° 2ë°° ì¦ê°€.
+	//dequeì˜ ê²½ìš° ë©”ëª¨ë¦¬ê°€ ì—°ì†ì ìœ¼ë¡œ í• ë‹¹ë˜ì–´ìˆì§€ ì•Šê¸° ë•Œë¬¸ì— reserve í•¨ìˆ˜ëŠ” ì—†ìŒ.
+	//resizeëŠ” ë©”ëª¨ë¦¬ í¬ê¸°ì™€ ë™ì‹œì— ìš”ì†Œë“¤ì˜ ì´ˆê¸°í™”ë„ ì¼ì–´ë‚¨.
 	AcquireSRWLockExclusive(m_BufferSwapLock + dwLockIndex);
 	
-	//ÀÎÅÍ¶ôÀ» ÅëÇØ ¿øÀÚÀûÀ¸·Î Å©±â Áõ°¡
+	//ì¸í„°ë½ì„ í†µí•´ ì›ìì ìœ¼ë¡œ í¬ê¸° ì¦ê°€
 	ULONG buffPos = InterlockedIncrement(&ilWriteBuffPos);
 
 	if (buffPos >= writeBuff->size())
@@ -578,7 +578,7 @@ void CIocp::PushWriteBuffer(PacketInfo* packetInfo, DWORD dwLockIndex)
 
 	(*writeBuff)[buffPos] = *packetInfo;
 
-	//std::cout << *(int*)(packetInfo->Buff + 4) << "¹ø ÆĞÅ¶ ¶óÀÌÆ®¹öÆÛ¿¡ ¾¸" << std::endl;
+	//std::cout << *(int*)(packetInfo->Buff + 4) << "ë²ˆ íŒ¨í‚· ë¼ì´íŠ¸ë²„í¼ì— ì”€" << std::endl;
 	
 	ReleaseSRWLockExclusive(m_BufferSwapLock + dwLockIndex);
 }
@@ -590,7 +590,7 @@ bool CIocp::InitAcceptPool(UINT num)
 
 	for (int i = 0; i < num; i++)
 	{
-		//¿À¹ö·¦IO¸¦ À§ÇØ ±¸Á¶Ã¼ ¼¼ÆÃ
+		//ì˜¤ë²„ë©IOë¥¼ ìœ„í•´ êµ¬ì¡°ì²´ ì„¸íŒ…
 		IODATA* pioData = new IODATA;
 		if (pioData == NULL) return false;
 		ZeroMemory(pioData, sizeof(IODATA));
@@ -626,7 +626,7 @@ bool CIocp::InitAcceptPool(UINT num)
 
 		}
 
-		////¼ÒÄÏ°ú iocp ¿¬°á
+		////ì†Œì¼“ê³¼ iocp ì—°ê²°
 		if ((CreateIoCompletionPort((HANDLE)pioData->connectSocket,
 			completionPort,
 			(ULONG_PTR)pClient,
@@ -652,7 +652,7 @@ bool CIocp::InitConnectPool(UINT num)
 
 	for (int i = 0; i < num; i++)
 	{
-		//¿À¹ö·¦IO¸¦ À§ÇØ ±¸Á¶Ã¼ ¼¼ÆÃ
+		//ì˜¤ë²„ë©IOë¥¼ ìœ„í•´ êµ¬ì¡°ì²´ ì„¸íŒ…
 		IODATA* pioData = new IODATA;
 		if (pioData == NULL) return false;
 		ZeroMemory(pioData, sizeof(IODATA));
@@ -665,7 +665,7 @@ bool CIocp::InitConnectPool(UINT num)
 		recvBytes = 0;
 
 		CString ds;
-		ds.Format(L"»õ·Î ¿¬°áÇÑ ¼ÒÄÏ%d\n", pioData->connectSocket);
+		ds.Format(L"ìƒˆë¡œ ì—°ê²°í•œ ì†Œì¼“%d\n", pioData->connectSocket);
 		OutputDebugString(ds);
 
 		CIocp* pClient = pConnectionList[i];
@@ -676,10 +676,10 @@ bool CIocp::InitConnectPool(UINT num)
 
 		InitSocketOption(pClient->m_socket);
 
-		//TCPÈ¦ÆİÄª ÀÌ¹Ì »ç¿ëÁßÀÎ Æ÷Æ®¿¡ ´Ù¸¥ ¼ÒÄÏ °­Á¦ ¹ÙÀÎµù 
+		//TCPí™€í€ì¹­ ì´ë¯¸ ì‚¬ìš©ì¤‘ì¸ í¬íŠ¸ì— ë‹¤ë¥¸ ì†Œì¼“ ê°•ì œ ë°”ì¸ë”© 
 		SetReuseSocketOpt(pClient->m_socket);
 
-		//ConnectEx¿ë bind
+		//ConnectExìš© bind
 		if (bind(pClient->m_socket, (PSOCKADDR)&addr,
 			sizeof(addr)) == SOCKET_ERROR) 
 		{
@@ -687,7 +687,7 @@ bool CIocp::InitConnectPool(UINT num)
 			return false;
 		}
 
-		//¼ÒÄÏ°ú iocp ¿¬°á
+		//ì†Œì¼“ê³¼ iocp ì—°ê²°
 		if ((CreateIoCompletionPort((HANDLE)pioData->connectSocket,
 			completionPort,
 			(ULONG_PTR)pClient,
@@ -730,7 +730,7 @@ bool CIocp::ReAcceptSocket(SOCKET socket)
 
 void CIocp::CloseSocket(SOCKET socket)
 {
-	//TF_DISCONNECT³ÖÀ¸¸é 10022 WSAEINVAL ¿À·ù ¹ÙÀÎµù ½ÇÆĞ. ÀÌ¹Ì bindµÈ ¼ÒÄÏ¿¡ ¹ÙÀÎµåÇÏ°Å³ª ÁÖ¼ÒÃ¼°è°¡ ÀÏ°üÀûÀÌÁö ¾ÊÀ» ¶§
+	//TF_DISCONNECTë„£ìœ¼ë©´ 10022 WSAEINVAL ì˜¤ë¥˜ ë°”ì¸ë”© ì‹¤íŒ¨. ì´ë¯¸ bindëœ ì†Œì¼“ì— ë°”ì¸ë“œí•˜ê±°ë‚˜ ì£¼ì†Œì²´ê³„ê°€ ì¼ê´€ì ì´ì§€ ì•Šì„ ë•Œ
 	//lpfnDisconnectEx(socket, NULL, TF_DISCONNECT | TF_REUSE_SOCKET, NULL);
 	
 	IODATA* pioData = new IODATA;
@@ -766,7 +766,7 @@ SOCKET CIocp::Connect(LPCTSTR lpszHostAddress, UINT port)
 	szHost = new char[len + 1];
 	WideCharToMultiByte(CP_ACP, 0, wszHost, -1, szHost, len, 0, 0);
 
-	//gethostbynameÀÌ deprecated. getaddrinfo¸¦ ´ë½Å ½á¼­ domainÀ¸·Î ºÎÅÍ ip¸¦ ¾ò´Â´Ù. 
+	//gethostbynameì´ deprecated. getaddrinfoë¥¼ ëŒ€ì‹  ì¨ì„œ domainìœ¼ë¡œ ë¶€í„° ipë¥¼ ì–»ëŠ”ë‹¤. 
 	/*char host[20];
 	gethostname(host, 20);
 	hostent* hent = gethostbyname(host);
@@ -805,7 +805,7 @@ SOCKET CIocp::Connect(LPCTSTR lpszHostAddress, UINT port)
 	char* conAddrtest = inet_ntoa(temptest->sin_addr);*/
 	//testend
 
-	//¿©±â¼­ È£½ºÆ®·Î ip¾ò´Â°Ç ºÒÇÊ¿äÇÑ °úÁ¤. ¹ÛÀ¸·Î ¿Å±âÀÚ.
+	//ì—¬ê¸°ì„œ í˜¸ìŠ¤íŠ¸ë¡œ ipì–»ëŠ”ê±´ ë¶ˆí•„ìš”í•œ ê³¼ì •. ë°–ìœ¼ë¡œ ì˜®ê¸°ì.
 	ADDRINFO* pAddrInfo = NULL;
 	ADDRINFO stAddrInfo = { 0, };
 	//stAddrInfo.ai_family = AF_UNSPEC;
@@ -826,7 +826,7 @@ SOCKET CIocp::Connect(LPCTSTR lpszHostAddress, UINT port)
 	SOCKADDR_IN sockAddr;
 	ZeroMemory(&sockAddr, sizeof(sockAddr));
 	sockAddr.sin_family = AF_INET;
-	//inet_addrÀÌ deprecatedµÇ¾î inet_pton(AF_INET, char_str, &(sockAddr.sin_addr.s_addr)); ´ëÃ¼ÇØ¾ß ÇÏÁö¸¸...
+	//inet_addrì´ deprecatedë˜ì–´ inet_pton(AF_INET, char_str, &(sockAddr.sin_addr.s_addr)); ëŒ€ì²´í•´ì•¼ í•˜ì§€ë§Œ...
 	sockAddr.sin_addr.s_addr = inet_addr(conAddr);
 	sockAddr.sin_port = htons(port);
 
@@ -835,18 +835,18 @@ SOCKET CIocp::Connect(LPCTSTR lpszHostAddress, UINT port)
 	CIocp* pClient = GetNoneConnectConnection();
 	if (pClient == NULL)
 	{
-		//´Ù½Ã Ä¿³ØÆ® ¼ÒÄÏÇ® ÃÊ±âÈ­
+		//ë‹¤ì‹œ ì»¤ë„¥íŠ¸ ì†Œì¼“í’€ ì´ˆê¸°í™”
 		if (!InitConnectPool(m_ChildSockNum))
 		{
 			std::cout << "re_InitConnectPool fail" << std::endl;
 		};
-		OutputDebugString(L"Ä¿³Ø¼ÇÇ® ÃÊ±âÈ­");
+		OutputDebugString(L"ì»¤ë„¥ì…˜í’€ ì´ˆê¸°í™”");
 		pClient = GetNoneConnectConnection();
 	}
 
-	//¾îÂ÷ÇÇ ÇØ´ç Å¸ÀÔÀÌ ´Ù¸¥ ÇÁ·Î¼¼½º·Î ³Ñ¾î°¡Áø ¾Ê´Â´Ù. 
-	//¹Ş´Â ÂÊ ¿öÄ¿½º·¹µå¿¡¼­ AcceptÇÏ¸é recv¸¦ ´Ù½Ã ¿¬°áÇØ ÁÖµÇ IOType::CONNECTÀ¸·Î ÇØ¼­
-	//Ä¿³ØÆ® ½Ã¿¡ ¹ß»ıÇÏ´Â 0¹ÙÀÌÆ® ÆĞÅ¶À» ¿¬°áÀÌ ²÷¾îÁÖ´Â ÆĞÅ¶°ú ±¸ºĞÇØÁÖµµ·Ï ÇÑ´Ù.
+	//ì–´ì°¨í”¼ í•´ë‹¹ íƒ€ì…ì´ ë‹¤ë¥¸ í”„ë¡œì„¸ìŠ¤ë¡œ ë„˜ì–´ê°€ì§„ ì•ŠëŠ”ë‹¤. 
+	//ë°›ëŠ” ìª½ ì›Œì»¤ìŠ¤ë ˆë“œì—ì„œ Acceptí•˜ë©´ recvë¥¼ ë‹¤ì‹œ ì—°ê²°í•´ ì£¼ë˜ IOType::CONNECTìœ¼ë¡œ í•´ì„œ
+	//ì»¤ë„¥íŠ¸ ì‹œì— ë°œìƒí•˜ëŠ” 0ë°”ì´íŠ¸ íŒ¨í‚·ì„ ì—°ê²°ì´ ëŠì–´ì£¼ëŠ” íŒ¨í‚·ê³¼ êµ¬ë¶„í•´ì£¼ë„ë¡ í•œë‹¤.
 	pClient->m_ioData->ioType = IOType::CONNECT;
 
 	if (lpfnConnectEx(pClient->m_socket,
@@ -872,7 +872,7 @@ bool CIocp::RecvSet(CIocp* pClient)
 	DWORD flags;
 	DWORD recvBytes;
 
-	//¿À¹ö·¦IO¸¦ À§ÇØ ±¸Á¶Ã¼ ¼¼ÆÃ
+	//ì˜¤ë²„ë©IOë¥¼ ìœ„í•´ êµ¬ì¡°ì²´ ì„¸íŒ…
 	IODATA* pioData = pClient->m_ioData;
 	if (pioData == NULL) return false;
 	ZeroMemory(pioData, sizeof(IODATA));
@@ -907,7 +907,7 @@ bool CIocp::RecvSet(CIocp* pClient, IOType ioType)
 	DWORD flags;
 	DWORD recvBytes;
 
-	//¿À¹ö·¦IO¸¦ À§ÇØ ±¸Á¶Ã¼ ¼¼ÆÃ
+	//ì˜¤ë²„ë©IOë¥¼ ìœ„í•´ êµ¬ì¡°ì²´ ì„¸íŒ…
 	IODATA* pioData = pClient->m_ioData;
 	if (pioData == NULL) return false;
 	ZeroMemory(pioData, sizeof(IODATA));
@@ -991,7 +991,7 @@ bool CIocp::Send(void* lpBuff, int nBuffSize)
 {
 	DWORD currentThreadId = GetCurrentThreadId();
 	CString ds;
-	ds.Format(L"%d ¾²±â ½º·¹µå È®ÀÎÂ÷\n", currentThreadId);
+	ds.Format(L"%d ì“°ê¸° ìŠ¤ë ˆë“œ í™•ì¸ì°¨\n", currentThreadId);
 	//OutputDebugString(ds);
 
 	DWORD sendbytes = 0;
@@ -1018,13 +1018,13 @@ bool CIocp::Send(void* lpBuff, int nBuffSize)
 		}
 	}
 
-	//std::cout << *(int*)(pioData->dataBuff.buf + 4) << "¹ø ÆĞÅ¶ " << sendbytes << "byte send" << std::endl;
+	//std::cout << *(int*)(pioData->dataBuff.buf + 4) << "ë²ˆ íŒ¨í‚· " << sendbytes << "byte send" << std::endl;
 	return true;
 }
 
 void CIocp::SendToBuff(void* lpBuff, int nBuffSize)
 {
-	//Recv¸¦ ¼ø¼­´ë·Î ¹Şµµ·Ï µ¿±âÈ­Çß±â ¶§¹®¿¡ Send¿¡¼­ º°µµÀÇ ¶ô ºÒÇÊ¿ä.
+	//Recvë¥¼ ìˆœì„œëŒ€ë¡œ ë°›ë„ë¡ ë™ê¸°í™”í–ˆê¸° ë•Œë¬¸ì— Sendì—ì„œ ë³„ë„ì˜ ë½ ë¶ˆí•„ìš”.
 	PacketInfo pckInfo;
 	pckInfo.connection = this;
 	memcpy(pckInfo.Buff, lpBuff, nBuffSize);
@@ -1056,7 +1056,7 @@ UINT CIocp::GetThreadLockNum()
 {
 	DWORD currentThreadId = GetCurrentThreadId();
 
-	//½º·¹µå ¾ÆÀÌµğ¸¦ ºñ±³ÇØ¼­ ½º·¹µå ¼ø¼­¿¡ µû¶ó ¶ô ÀÎµ¦½º¸¦ ¾ò´Â´Ù.
+	//ìŠ¤ë ˆë“œ ì•„ì´ë””ë¥¼ ë¹„êµí•´ì„œ ìŠ¤ë ˆë“œ ìˆœì„œì— ë”°ë¼ ë½ ì¸ë±ìŠ¤ë¥¼ ì–»ëŠ”ë‹¤.
 	for (DWORD i = 0; i < m_pMainConnection->dwLockNum; i++)
 	{
 		if (m_pMainConnection->m_ThreadIdArr[i] == currentThreadId)
