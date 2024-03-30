@@ -1,6 +1,6 @@
 ﻿#include "SRIocp.h"
 
-//static 멤버 초기화
+//전역 변수 초기화
 AcceptFunc CIocp::g_pOnAcceptFunc = NULL;
 ConnectFunc CIocp::g_pOnConnectFunc = NULL;
 CloseFunc CIocp::g_pOnCloseFunc = NULL;
@@ -329,7 +329,7 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 			IODATA* pioData = (IODATA*)lpOverlapped;
 			std::cout << pioData->socket << "Socket " << "GetQueuedCompletionStatus fail : " << WSAGetLastError() << std::endl;
 			
-			arg->CloseSocket(piocp->m_socket);
+			arg->CloseSocket(piocp->m_uConnectionIndex);
 			continue;
 		}
 
@@ -390,7 +390,7 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 		{
 			//piocp->OnClose();
 			std::cout << "Enter 0byte\n";
-			arg->CloseSocket(piocp->m_socket);
+			arg->CloseSocket(piocp->m_uConnectionIndex);
 
 			continue;
 		}
