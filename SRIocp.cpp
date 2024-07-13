@@ -13,10 +13,8 @@ CIocp::CIocp()
 	m_ListenSocket = NULL;
 	m_CompletionPort = NULL;
 	m_bWorkerThreadLive = false;
-	m_ilWriteQueuePos = -1;
-	//m_pTempBuff = NULL;
-	//m_uTempBuffPos = 0;
-	//m_uIoPos = 0;
+	m_dwWriteQueuePos = -1;
+
 	m_dwReadQueuePos = 0;
 	m_dwSendQueuePos = 0;
 
@@ -30,8 +28,6 @@ CIocp::~CIocp()
 		delete[] m_pBufferSwapLock;
 	if (m_pThreadIdArr != nullptr)
 		delete[] m_pThreadIdArr;
-	//if (m_pTempBuff != nullptr)
-		//delete[] m_pTempBuff;
 
 }
 
@@ -115,7 +111,7 @@ bool CIocp::GetIoExFuncPointer()
 	return true;
 }
 
-bool CIocp::InitSocket(ECSType csType, UINT port)
+bool CIocp::InitNetwork(ECSType csType, UINT port)
 {
 	int retVal;
 	WSADATA wsaData;
@@ -175,7 +171,6 @@ bool CIocp::InitSocket(ECSType csType, UINT port)
 		return false;
 	}
 
-	
 
 	//아래로는 서버 초기화
 	if (csType == ECSType::CLIENT)
@@ -222,9 +217,9 @@ bool CIocp::InitSocket(ECSType csType, UINT port)
 	if (getsockname(m_ListenSocket, (SOCKADDR*)&sin, &len) != -1)
 	{
 		m_nBindPort = ntohs(sin.sin_port);
-		printf("port number %d\n", ntohs(sin.sin_port));
 	}
 
+	printf("Listen Start: m_ListenSocket = %d Port = %d \n", m_ListenSocket, m_nBindPort);
 	return true;
 
 }
@@ -302,6 +297,8 @@ bool CIocp::CreateWorkerThread()
 
 		CloseHandle(threadHandle);
 	}
+
+	printf("WorkerThread Num = %d \n", m_dwLockNum);
 
 	return true;
 }
@@ -556,14 +553,7 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 }
 
 void CIocp::PacketProcess()
-{
-	//리드 버퍼 다 처리했고, 라이트버퍼에 남아있으면 스왑.
-	/*if (m_dwReadQueuePos >= GetReadContainerSize()
-		&& GetWriteContainerSize() != 0)
-	{
-		SwapRecvQueue();
-	}*/
-
+{	
 	//리드버퍼 다 처리했으면 탈출
 	if (m_dwReadQueuePos >= m_dwReadQueueSize)
 		goto SWAPCHECK;
@@ -632,7 +622,7 @@ void CIocp::SwapRecvQueue()
 
 	printf("Prev ReadQueueSize = %d WriteQueueSize = %d \n", m_dwReadQueueSize, m_dwWriteQueueSize);
 
-	//리드 큐 다 읽었을 때 스왑이 일어남으로 리드 큐 비워준다. 
+	//리드 큐 다 읽었을 때 스왑이 일어날 때 노드 마다 가지고 있는 버퍼를 비워줄 것인가? 
 	//m_pReadQueue->clear();
 
 	//스왑
@@ -643,7 +633,7 @@ void CIocp::SwapRecvQueue()
 	//라이트큐에 현재까지 쌓은 위치가 사이즈. 스왑 하면서 리드큐에 넣는다.
 	m_dwReadQueueSize = m_dwWriteQueueSize;
 	m_dwReadQueuePos = 0;
-	InterlockedExchange(&m_ilWriteQueuePos, -1); //락으로 쌓여있는 상태니까 여긴 인터락 아니어도 될 거 같긴 한데.
+	InterlockedExchange(&m_dwWriteQueuePos, -1); //락으로 쌓여있는 상태니까 여긴 인터락 아니어도 될 거 같긴 한데.
 	InterlockedExchange(&m_dwWriteQueueSize, 0);
 
 	printf("After ReadQueueSize = %d WriteQueueSize = %d \n", m_dwReadQueueSize, m_dwWriteQueueSize);
@@ -656,32 +646,6 @@ void CIocp::SwapRecvQueue()
 	SetEvent(m_WriteQueueWaitEvent);
 }
 
-/*
-void CIocp::PushWriteBuffer(PacketInfo* packetInfo, DWORD dwLockIndex)
-{
-	//큐에 인터락의 위치가 할당되어 있지 않다면 크기 2배 증가.
-	//resize는 메모리 크기와 동시에 요소들의 초기화도 일어남.
-	AcquireSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
-
-	//인터락을 통해 원자적으로 크기 증가
-	LONG buffPos = InterlockedIncrement(&m_ilWriteQueuePos);
-
-	if (buffPos >= m_pWriteQueue->size())
-	{
-		if (m_pWriteQueue->size() == 0)
-			m_pWriteQueue->resize(1);
-
-		m_pWriteQueue->resize(m_pWriteQueue->size() * 2);
-	}
-
-	(*m_pWriteQueue)[buffPos] = *packetInfo;
-
-	//std::cout << *(int*)(packetInfo->Buff + 4) << "번 패킷 라이트버퍼에 씀" << std::endl;
-
-	ReleaseSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
-}
-*/
-
 void CIocp::PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex)
 {
 	//큐에 푸쉬하는 도중 큐 스왑이 일어나지 않기 위한 락
@@ -693,7 +657,7 @@ void CIocp::PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwM
 	{
 		int iBytes = *(DWORD*)pMsg; //패킷 헤더에서 사이즈를 읽는다. 
 		iTotalBytes += iBytes;
-		DWORD uQueuePos = InterlockedIncrement(&m_ilWriteQueuePos);
+		DWORD uQueuePos = InterlockedIncrement(&m_dwWriteQueuePos);
 
 		//패킷 하나가 가질 수 있는 사이즈 넘기는지 체크
 		if (iBytes > PACKET_BUFF_MAX)
@@ -708,7 +672,7 @@ void CIocp::PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwM
 			printf("RecvQueue OVER. Wait Swap \n");
 			WaitForSingleObject(m_WriteQueueWaitEvent, INFINITE);
 			//스왑 후 큐 위치를 다시 구한다.
-			uQueuePos = InterlockedIncrement(&m_ilWriteQueuePos);
+			uQueuePos = InterlockedIncrement(&m_dwWriteQueuePos);
 		}
 
 		PacketInfo* pPacketInfo = &(*m_pWriteQueue)[uQueuePos];
@@ -1015,50 +979,10 @@ SOCKET CIocp::Connect(char* pAddress, UINT port)
 	return socket;
 }
 
-/*
-bool CIocp::RecvSet(CConnection* pConnection)
-{
-	DWORD dwFlags = 0;
-	DWORD dwBytes = 0;
-
-	//오버랩IO를 위해 구조체 세팅
-	IODATA* pioData = pConnection->m_pIoData;
-
-	if (pioData == NULL) 
-		return false;
-
-	ZeroMemory(pioData, sizeof(IODATA));
-	pioData->socket = pConnection->m_socket;
-	pioData->WSABuff.len = RECV_PACKET_MAX;
-	pioData->WSABuff.buf = pioData->buff;
-	pioData->ioType = IOType::RECV;
-	pioData->dwIndex = pConnection->m_uConnectionIndex;
-
-	if (WSARecv(pConnection->m_socket,
-		&pioData->WSABuff,
-		1,
-		&dwBytes,
-		&dwFlags,
-		(LPOVERLAPPED)pioData,
-		NULL) == SOCKET_ERROR )
-	{
-		if (WSAGetLastError() != ERROR_IO_PENDING)
-		{
-			printf("WSARecv Fail. WSAGetLastError = %d \n", WSAGetLastError());
-			return false;
-		}
-	}
-
-	return true;
-}
-*/
-
 CConnection* CIocp::GetConnection(DWORD dwIndex)
 {
 	return m_ConnectionList[dwIndex];
 }
-
-
 
 CConnection* CIocp::GetFreeConnection()
 {
@@ -1167,32 +1091,3 @@ UINT CIocp::GetThreadLockNum()
 	return -1;
 }
 
-/*
-UINT CIocp::GetWriteContainerSize()
-{
-	UINT Count = 0;
-
-	for (int i = 0; i < m_pWriteQueue->size(); i++)
-	{
-		if ((*m_pWriteQueue)[i].pConnection != NULL)
-			Count++;
-	}
-	return Count;
-}
-*/
-/*
-UINT CIocp::GetReadContainerSize()
-{
-	UINT Count = 0;
-
-	if (m_pReadQueue->size() == 0)
-		return Count;
-
-	for (int i = 0; i < m_pReadQueue->size(); i++)
-	{
-		if ((*m_pReadQueue)[i].pConnection != NULL)
-			Count++;
-	}
-	return Count;
-}
-*/

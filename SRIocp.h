@@ -32,7 +32,7 @@ public:
 public:
 	bool InitConnectionList(DWORD dwCount);
 	bool GetIoExFuncPointer();
-	bool InitSocket(ECSType csType, UINT port); // 클라이언트의 경우 포트는 NULL 넣어서 이용.
+	bool InitNetwork(ECSType csType, UINT port); // 클라이언트의 경우 포트는 NULL 넣어서 이용.
 	
 	void InitSocketOption(SOCKET socket);
 	void SetReuseSocketOpt(SOCKET socket);
@@ -62,8 +62,6 @@ public:
 	void PacketProcess();
 	//void SendPacketProcess();
 	void SwapRecvQueue();
-	//void PushWriteBuffer(PacketInfo* packetInfo, DWORD dwLockIndex);
-	
 	void PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex);
 
 	bool ReAcceptSocket(UINT uIndex);
@@ -71,7 +69,6 @@ public:
 
 	SOCKET Connect(char* pAddress, UINT port);
 
-	//bool RecvSet(CConnection* pConnection);
 	bool Send(DWORD dwIndex, char* pMsg, DWORD dwBytes);
 	//void SendToBuff(void* lpBuff, int nBuffSize);
 
@@ -82,8 +79,6 @@ public:
 
 	void StopThread();
 	UINT GetThreadLockNum();
-	//UINT GetWriteContainerSize();
-	//UINT GetReadContainerSize();
 
 public:
 	ECSType m_eCSType; //서버용/클라용 네트워크 
@@ -117,7 +112,7 @@ public:
 	DWORD m_dwReadQueuePos; //리드 큐 현재 위치
 	DWORD m_dwReadQueueSize; //리드 큐 요소 개수
 	std::vector<PacketInfo>* m_pWriteQueue;//리시브 받은 데이터가 패킷이 되면 써넣을 큐(더블 버퍼링 백 버퍼)
-	DWORD m_ilWriteQueuePos; //인터락으로 관리할 라이트 큐 현재 위치
+	DWORD m_dwWriteQueuePos; //인터락으로 관리할 라이트 큐 현재 위치
 	DWORD m_dwWriteQueueSize; //라이트 큐 요소 개수
 
 	HANDLE m_WriteQueueWaitEvent; //라이트 큐가 넘치면 스왑할 때 까지 대기하기 위한 이벤트
