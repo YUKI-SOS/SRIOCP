@@ -1,11 +1,6 @@
 #pragma once
 #define _WINSOCK_DEPRECATED_NO_WARNINGS // inet_addr gethostbyname 등의 deprecated 함수 이용
-#pragma comment(lib, "ws2_32")
-#pragma comment(lib, "mswsock.lib")
-#include <WinSock2.h>
-#include <Windows.h>
-#include <mswsock.h>
-#include <stdlib.h>
+
 #include <process.h> //beginthreadex 등
 #include <iostream>
 #include <string>	//std::string
@@ -14,63 +9,91 @@
 #include <map>
 #include <ws2tcpip.h>
 
+#include "NetworkDefine.h"
+#include "CConnection.h"
+
 class CIocp;
+class CConnection;
 
-const unsigned int BUFFSIZE = 512;
-
-enum class ECSType
-{
-	SERVER = 0,
-	CLIENT
-};
-enum class IOType
-{
-	NONE = 0,
-	ACCEPT,
-	CONNECT,
-	DISCONNECT,
-	RECV,
-	SEND
-};
-
-//오버랩 확장
-typedef struct
-{
-	OVERLAPPED overlapped;
-	WSABUF dataBuff;
-	CHAR buff[BUFFSIZE];
-	SOCKET socket;
-	UINT uIndex;
-	IOType ioType;
-}IODATA;
-
-typedef struct
-{
-	CIocp* pConnection;
-	CHAR Buff[BUFFSIZE];
-}PacketInfo;
-
-//라이브러리를 사용할 외부에서 건네줄 함수포인터 타입들.
-typedef void (*AcceptFunc)(UINT uIndex);
-typedef void (*ConnectFunc)(UINT uIndex);
-typedef void (*CloseFunc)(UINT uIndex);
-typedef void (*RecvFunc)(PacketInfo* pPacketInfo);
+//라이브러리를 사용할 외부에서 건네줄 함수포인터
+typedef void (*AcceptFunc)(DWORD dwIndex);
+typedef void (*ConnectFunc)(DWORD dwIndex);
+typedef void (*CloseFunc)(DWORD dwIndex);
+typedef void (*RecvFunc)(DWORD dwIndex, char* pMsg, DWORD dwLength);
 
 
 class CIocp
 {
+
 public:
-	ECSType m_eCSType;
+	CIocp();
+	virtual ~CIocp();
+
+public:
+	bool InitConnectionList(DWORD dwCount);
+	bool GetIoExFuncPointer();
+	bool InitSocket(ECSType csType, UINT port); // 클라이언트의 경우 포트는 NULL 넣어서 이용.
+	
+	void InitSocketOption(SOCKET socket);
+	void SetReuseSocketOpt(SOCKET socket);
+	void SetLingerOpt(SOCKET socket);
+	void SetNagleOffOpt(SOCKET socket);
+	int SetAcceptContextOpt(SOCKET socket); //getpeername 및 getsockname 정상 작동하기 위해서 필요
+	int SetConnectContextOpt(SOCKET socket);
+
+	bool InitAcceptPool(DWORD dwNum);
+	//bool InitConnectPool(UINT num);
+
+	static void SetOnAcceptFunc(AcceptFunc pFunc) { g_pOnAcceptFunc = pFunc; };
+	static void OnAccept(DWORD dwIndex) { g_pOnAcceptFunc(dwIndex); };
+	
+	static void SetOnConnectFunc(ConnectFunc pFunc) { g_pOnConnectFunc = pFunc; };
+	static void OnConnect(DWORD dwIndex) { g_pOnConnectFunc(dwIndex); };
+	
+	static void SetOnCloseFunc(CloseFunc pFunc) { g_pOnCloseFunc = pFunc; };
+	static void OnClose(DWORD dwIndex) { g_pOnCloseFunc(dwIndex); };
+	
+	static void SetOnRecvFunc(RecvFunc pFunc) { g_pOnRecvFunc = pFunc; };
+	static void OnRecv(DWORD dwIndex, char* pMsg, DWORD dwLength) { g_pOnRecvFunc(dwIndex, pMsg, dwLength); };
+
+	bool CreateWorkerThread();
+	static unsigned __stdcall WorkerThread(LPVOID CompletionPortObj);
+
+	void PacketProcess();
+	//void SendPacketProcess();
+	void SwapRecvQueue();
+	//void PushWriteBuffer(PacketInfo* packetInfo, DWORD dwLockIndex);
+	
+	void PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex);
+
+	bool ReAcceptSocket(UINT uIndex);
+	bool CloseConnection(DWORD dwIndex);
+
+	SOCKET Connect(char* pAddress, UINT port);
+
+	//bool RecvSet(CConnection* pConnection);
+	bool Send(DWORD dwIndex, char* pMsg, DWORD dwBytes);
+	//void SendToBuff(void* lpBuff, int nBuffSize);
+
+	CConnection* GetConnection(DWORD dwIndex);
+	CConnection* GetFreeConnection();
+
+	//bool GetPeerName(char* pAddress, WORD* pPort);
+
+	void StopThread();
+	UINT GetThreadLockNum();
+	//UINT GetWriteContainerSize();
+	//UINT GetReadContainerSize();
+
+public:
+	ECSType m_eCSType; //서버용/클라용 네트워크 
 	UINT m_nBindPort; //accept용도의 bind할 포트
-	bool m_isConnected; //차일드 소켓의 경우 accept/connect 체크용. 메인 소켓의 경우 루프 중 delete 타이밍을 맞추기 위해 이용.
 	SOCKET m_ListenSocket; //리슨 소켓
-	SOCKET m_socket; //커넥션 들이 가질 소켓. send recv용
 	HANDLE m_CompletionPort; //completionport 핸들
 	IODATA* m_pIoData; //오버랩 확장. 버퍼 및 리시브 센드 타입
 
-	std::vector<CIocp*> m_ConnectionList; //커넥션 리스트
+	std::vector<CConnection*> m_ConnectionList; //커넥션 리스트
 	UINT m_uConnectionIndex;
-	CIocp* m_pMainConnection; //차일드 커넥션들이 메인 커넥션에 접근하기 위한 포인터
 
 	std::string m_szRemoteIP; //외부에서 연결시도한 커넥션의 ip
 	UINT m_uRemotePort; //외부에서 연결시도한 커넥션의 포트
@@ -87,73 +110,26 @@ public:
 	static CloseFunc g_pOnCloseFunc;
 	static RecvFunc g_pOnRecvFunc;
 
-	std::vector<PacketInfo>* m_pReadBuff; //메인소켓에서 패킷들을 계속 처리할 버퍼
-	UINT m_uReadBuffPos; //패킷 프로세스 스레드에서 읽고 있는 리드 버퍼 위치.
-	std::vector<PacketInfo>* m_pWriteBuff;//차일들 소켓들이 리시브 버퍼의 내용을 계속 써넣을 메인소켓의 버퍼
-	ULONG m_uInterLockWriteBuffPos; //인터락으로 관리할 라이트 버퍼의 위치.
-	std::vector<PacketInfo>* m_pSendBuff;
-	UINT m_uSendBuffPos;
-	char* m_pTempBuff; //완전하지 않은 패킷을 임시 보관하는 버퍼
-	UINT m_uTempBuffPos;
-	UINT m_uIoPos;
+	std::vector<PacketInfo> m_RecvQueue1;
+	std::vector<PacketInfo> m_RecvQueue2;
+
+	std::vector<PacketInfo>* m_pReadQueue; //패킷을 처리할 리드 큐(더블 버퍼링 프론트 버퍼)
+	DWORD m_dwReadQueuePos; //리드 큐 현재 위치
+	DWORD m_dwReadQueueSize; //리드 큐 요소 개수
+	std::vector<PacketInfo>* m_pWriteQueue;//리시브 받은 데이터가 패킷이 되면 써넣을 큐(더블 버퍼링 백 버퍼)
+	DWORD m_ilWriteQueuePos; //인터락으로 관리할 라이트 큐 현재 위치
+	DWORD m_dwWriteQueueSize; //라이트 큐 요소 개수
+
+	HANDLE m_WriteQueueWaitEvent; //라이트 큐가 넘치면 스왑할 때 까지 대기하기 위한 이벤트
+
+	std::vector<PacketInfo> m_pSendQueue;
+	DWORD m_dwSendQueuePos;
 
 	DWORD m_dwLockNum; //워커스레드 갯수이자 Read Write 버퍼 스왑할 때 걸 락의 갯수.
 	SRWLOCK* m_pBufferSwapLock; //버퍼 스왑용 SRWLock 배열
 	DWORD* m_pThreadIdArr; //워커스레드 아이디 배열
 
-	UINT m_nChildSockNum;
-
-public:
-	CIocp();
-	virtual ~CIocp();
-
-	bool InitConnectionList(UINT nCount);
-
-	bool InitSocket(ECSType csType, UINT port); // 클라이언트의 경우 포트는 NULL 넣어서 이용.
-	void InitSocketOption(SOCKET socket);
-	void SetReuseSocketOpt(SOCKET socket);
-	void SetLingerOpt(SOCKET socket);
-	void SetNagleOffOpt(SOCKET socket);
-
-	bool InitAcceptPool(UINT num);
-	bool InitConnectPool(UINT num);
-
-	static void SetOnAcceptFunc(AcceptFunc pFunc) { g_pOnAcceptFunc = pFunc; };
-	static void OnAccept(UINT uIndex) { g_pOnAcceptFunc(uIndex); };
-	
-	static void SetOnConnectFunc(ConnectFunc pFunc) { g_pOnConnectFunc = pFunc; };
-	static void OnConnect(UINT uIndex) { g_pOnConnectFunc(uIndex); };
-	
-	static void SetOnCloseFunc(CloseFunc pFunc) { g_pOnCloseFunc = pFunc; };
-	static void OnClose(UINT uIndex) { g_pOnCloseFunc(uIndex); };
-	
-	static void SetOnRecvFunc(RecvFunc pFunc) { g_pOnRecvFunc = pFunc; };
-	static void OnRecv(PacketInfo* pPacketInfo) { g_pOnRecvFunc(pPacketInfo); };
-
-	bool CreateWorkerThread();
-	static unsigned __stdcall WorkerThread(LPVOID CompletionPortObj);
-	void PacketProcess();
-	void SendPacketProcess();
-	void SwapRWBuffer();
-	void PushWriteBuffer(PacketInfo* packetInfo, DWORD dwLockIndex);
-
-	bool ReAcceptSocket(UINT uIndex);
-	void CloseSocket(UINT uIndex);
-	SOCKET Connect(LPCTSTR lpszHostAddress, UINT port);
-
-	bool RecvSet(CIocp* pConnection);
-	bool Send(UINT uIndex, void* lpBuff, int nBuffSize);
-	void SendToBuff(void* lpBuff, int nBuffSize);
-
-	CIocp* GetEmptyConnection();
-	CIocp* GetConnection(UINT uIndex);
-	CIocp* GetNoneConnectConnection(); //소켓 재활용해서 소켓핸들은 이미 있지만 연결은 안되어 있는 차일드 커넥션 얻을때.
-	bool GetPeerName(CString& peerAdress, UINT& peerPort);
-
-	void StopThread();
-	UINT GetThreadLockNum();
-	UINT GetWriteContainerSize();
-	UINT GetReadContainerSize();
-
+	DWORD m_dwConnectionMax; //커넥션 맥스 최대 개수
+	DWORD m_dwConnectionSize; //커넥션 현재 개수
 };
 

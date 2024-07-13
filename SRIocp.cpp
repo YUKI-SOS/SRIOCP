@@ -1,4 +1,5 @@
 ﻿#include "SRIocp.h"
+#include "CConnection.h"
 
 //전역 변수 초기화
 AcceptFunc CIocp::g_pOnAcceptFunc = NULL;
@@ -10,19 +11,14 @@ RecvFunc CIocp::g_pOnRecvFunc = NULL;
 CIocp::CIocp()
 {
 	m_ListenSocket = NULL;
-	m_socket = NULL;
 	m_CompletionPort = NULL;
 	m_bWorkerThreadLive = false;
-	m_pMainConnection = this;
-	m_isConnected = false;
-	m_pWriteBuff = NULL;
-	m_uInterLockWriteBuffPos = -1;
-	m_pReadBuff = NULL;
-	m_pTempBuff = NULL;
-	m_uTempBuffPos = 0;
-	m_uIoPos = 0;
-	m_uReadBuffPos = 0;
-	m_uSendBuffPos = 0;
+	m_ilWriteQueuePos = -1;
+	//m_pTempBuff = NULL;
+	//m_uTempBuffPos = 0;
+	//m_uIoPos = 0;
+	m_dwReadQueuePos = 0;
+	m_dwSendQueuePos = 0;
 
 	m_dwLockNum = 0;
 }
@@ -34,89 +30,31 @@ CIocp::~CIocp()
 		delete[] m_pBufferSwapLock;
 	if (m_pThreadIdArr != nullptr)
 		delete[] m_pThreadIdArr;
-	if (m_pTempBuff != nullptr)
-		delete[] m_pTempBuff;
-
-	if (m_pReadBuff != nullptr)
-	{
-		m_pReadBuff->resize(0);
-		delete m_pReadBuff;
-	}
-	if (m_pWriteBuff != nullptr)
-	{
-		m_pWriteBuff->resize(0);
-		delete m_pWriteBuff;
-	}
+	//if (m_pTempBuff != nullptr)
+		//delete[] m_pTempBuff;
 
 }
 
-bool CIocp::InitConnectionList(UINT nCount)
+bool CIocp::InitConnectionList(DWORD dwCount)
 {
-	for (int i = 0; i < nCount; i++)
+	m_ConnectionList.resize(dwCount);
+
+	for (DWORD i = 0; i < dwCount; i++)
 	{
-		CIocp* child = new CIocp;
-		child->m_pTempBuff = new char[BUFFSIZE];
-		ZeroMemory(child->m_pTempBuff, BUFFSIZE);
-		child->m_pMainConnection = this;
-		child->m_uConnectionIndex = i;
-		m_ConnectionList.push_back(child);
+		CConnection* pConnection = new CConnection;
+		SOCKET socket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_IP,	NULL, 0, WSA_FLAG_OVERLAPPED);
+		pConnection->Initialize(i, socket, RECV_RING_BUFFER_MAX, SEND_RING_BUFFER_MAX);
+		pConnection->SetNetwork(this);
+		m_ConnectionList[i] = pConnection;
 	}
 
-	m_nChildSockNum = nCount;
+	m_dwConnectionMax = dwCount;
 
 	return false;
 }
 
-bool CIocp::InitSocket(ECSType csType, UINT port)
+bool CIocp::GetIoExFuncPointer()
 {
-	int retVal;
-	WSADATA wsaData;
-
-	m_eCSType = csType;
-
-	m_isConnected = true;
-
-	//버퍼 할당
-	m_pReadBuff = new std::vector<PacketInfo>;
-	m_pWriteBuff = new std::vector<PacketInfo>;
-
-	m_pSendBuff = new std::vector<PacketInfo>;
-	//sendBuff->resize(1);
-
-	m_pReadBuff->resize(1);
-	m_pWriteBuff->resize(1);
-	//윈속 초기화
-	if ((retVal = WSAStartup(MAKEWORD(2, 2), &wsaData)) != 0)
-	{
-		std::cout << "WSAStartup fail" << std::endl;
-		return false;
-	}
-
-	//iocp객체 생성
-	//CreateIoCompletionPort마지막 인자가 0이면 cpu 코어 개수만큼 스레드 이용
-	if ((m_CompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0)) == NULL)
-	{
-		std::cout << "CreateIoCompletionPort fail" << std::endl;
-		return false;
-	}
-
-
-	//워커스레드 생성
-	CreateWorkerThread();
-
-	//클라이언트도 ConnectEx 등의 함수의 포인터를 얻기 위해 임의의 소켓이 필요함.
-	if ((m_ListenSocket = WSASocket(AF_INET,
-		SOCK_STREAM,
-		IPPROTO_TCP,
-		NULL,
-		0,
-		WSA_FLAG_OVERLAPPED
-	)) == INVALID_SOCKET)
-	{
-		std::cout << "WSASocket fail" << std::endl;
-		return false;
-	}
-
 	//AcceptEx 함수 쓸 수 있도록 등록
 	lpfnAcceptEx = NULL;
 	GUID guidAcceptEx = WSAID_ACCEPTEX;
@@ -132,9 +70,9 @@ bool CIocp::InitSocket(ECSType csType, UINT port)
 		NULL,
 		NULL) == SOCKET_ERROR)
 	{
-		std::cout << "AcceptEx WsaIoctl Error:" << WSAGetLastError() << std::endl;
+		printf("AcceptEx WsaIoctl Error. WSAGetLastError = %d \n", WSAGetLastError());
+		return false;
 	}
-
 
 	//DisconnectEx 함수 쓸 수 있도록 등록
 	lpfnDisconnectEx = NULL;
@@ -151,7 +89,8 @@ bool CIocp::InitSocket(ECSType csType, UINT port)
 		NULL,
 		NULL) == SOCKET_ERROR)
 	{
-		std::cout << "DisConnectEx WsaIoctl Error:" << WSAGetLastError() << std::endl;
+		printf("DisConnectEx WsaIoctl Error. WSAGetLastError = %d \n", WSAGetLastError());
+		return false;
 	}
 
 	//ConnectEx 함수 쓸 수 있도록 등록
@@ -169,11 +108,78 @@ bool CIocp::InitSocket(ECSType csType, UINT port)
 		NULL,
 		NULL) == SOCKET_ERROR)
 	{
-		std::cout << "ConnectEx WsaIoctl Error:" << WSAGetLastError() << std::endl;
+		printf("ConnectEx WsaIoctl Error. WSAGetLastError = %d \n", WSAGetLastError());
+		return false;
 	}
 
+	return true;
+}
+
+bool CIocp::InitSocket(ECSType csType, UINT port)
+{
+	int retVal;
+	WSADATA wsaData;
+
+	m_eCSType = csType;
+
+	//큐 리사이즈
+	m_RecvQueue1.resize(RECV_QUEUE_MAX);
+	m_RecvQueue2.resize(RECV_QUEUE_MAX);
+
+	m_pReadQueue = &m_RecvQueue1;
+	m_pWriteQueue = &m_RecvQueue2;
+
+	m_pSendQueue.resize(SEND_QUEUE_MAX);
+
+	//이벤트 초기화(오토 리셋)
+	m_WriteQueueWaitEvent = CreateEvent(NULL, FALSE, FALSE, NULL); 
+
+	//윈속 초기화
+	if ((retVal = WSAStartup(MAKEWORD(2, 2), &wsaData)) != 0)
+	{
+		printf("WSAStartup Fail\n");
+		return false;
+	}
+
+	//iocp객체 생성
+	//CreateIoCompletionPort마지막 인자가 0이면 cpu 코어 개수만큼 스레드 이용
+	if ((m_CompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0)) == NULL)
+	{
+		printf("CreateIoCompletionPort Fail\n");
+		return false;
+	}
+
+	//워커스레드 생성
+	if (CreateWorkerThread() == false) 
+	{
+		printf("CreateWorkerThread Fail\n");
+		return false;
+	}
+
+	//클라이언트도 ConnectEx 등의 함수의 포인터를 얻기 위해 임의의 소켓이 필요함.
+	if ((m_ListenSocket = WSASocket(AF_INET,
+		SOCK_STREAM,
+		IPPROTO_TCP,
+		NULL,
+		0,
+		WSA_FLAG_OVERLAPPED
+	)) == INVALID_SOCKET)
+	{
+		printf("WSASocket Fail\n");
+		return false;
+	}
+
+	if (GetIoExFuncPointer() == false)
+	{
+		printf("GetIoExFuncPointer Fail\n");
+		return false;
+	}
+
+	
+
 	//아래로는 서버 초기화
-	if (csType == ECSType::CLIENT) return true;
+	if (csType == ECSType::CLIENT)
+		return true;
 
 	//listen 소켓 iocp 연결
 	if (CreateIoCompletionPort((HANDLE)m_ListenSocket,
@@ -181,7 +187,8 @@ bool CIocp::InitSocket(ECSType csType, UINT port)
 		(ULONG_PTR)this,
 		0) == NULL)
 	{
-		std::cout << "listensocket iocp fail" << std::endl;
+		printf("CreateIoCompletionPort Fail\n");
+		return false;
 	}
 
 	//bind
@@ -192,20 +199,21 @@ bool CIocp::InitSocket(ECSType csType, UINT port)
 	serverAddr.sin_port = htons(port);
 
 	//TCP홀펀칭 이미 사용중인 포트에 다른 소켓 강제 바인딩 
-	SetReuseSocketOpt(m_ListenSocket);
+	//SetReuseSocketOpt(m_ListenSocket);
 
 	if (bind(m_ListenSocket,
 		(PSOCKADDR)&serverAddr,
 		sizeof(serverAddr)) == SOCKET_ERROR)
 	{
-		std::cout << "bind fail" << WSAGetLastError() << std::endl;
+		printf("Bind Fail. WSAGetLastError = %d\n", WSAGetLastError());
 		return false;
 	}
 
 	//listen
 	if (listen(m_ListenSocket, 5) == SOCKET_ERROR)
 	{
-		std::cout << "listen fail" << std::endl;
+		printf("Listen Fail\n");
+		return false;
 	}
 
 	//포트를 0으로 바인드 했을 경우 할당해준 포트를 알아낸다. 
@@ -266,7 +274,9 @@ bool CIocp::CreateWorkerThread()
 	SYSTEM_INFO sysInfo;
 	GetSystemInfo(&sysInfo);
 
-	m_dwLockNum = sysInfo.dwNumberOfProcessors * 2;
+	//m_dwLockNum = sysInfo.dwNumberOfProcessors * 2;
+	m_dwLockNum = 2; //테스트
+
 	//SRWLock 생성 및 초기화.
 	m_pBufferSwapLock = new SRWLOCK[m_dwLockNum];
 	for (DWORD i = 0; i < m_dwLockNum; i++)
@@ -277,7 +287,7 @@ bool CIocp::CreateWorkerThread()
 	m_pThreadIdArr = new DWORD[m_dwLockNum];
 
 	//(CPU 개수 * 2)개의 워커 스레드 생성
-	for (DWORD i = 0; i < sysInfo.dwNumberOfProcessors * 2; i++)
+	for (DWORD i = 0; i < m_dwLockNum; i++)
 	{
 		if ((threadHandle = (HANDLE)_beginthreadex(NULL,
 			0,
@@ -286,7 +296,7 @@ bool CIocp::CreateWorkerThread()
 			0,
 			(unsigned int*)&m_pThreadIdArr[i])) == NULL)
 		{
-			std::cout << "CreateWorkerThread fail" << std::endl;
+			printf("CreateWorkerThread Fail\n");
 			return false;
 		}
 
@@ -301,118 +311,119 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 {
 	CIocp* arg = (CIocp*)CompletionPortObj;
 	HANDLE completionport = arg->m_CompletionPort;
-	//SOCKET socket;
 	ULONG_PTR key = NULL;
 	LPOVERLAPPED lpOverlapped = NULL;
-	DWORD transferredBytes = 0;
+	DWORD dwTransferredBytes = 0;
 
 	DWORD dwLockIndex = 0;
-	DWORD currentThreadId = GetCurrentThreadId();
+	DWORD dwCurrentThreadId = GetCurrentThreadId();
+
+	char* pMsg = nullptr;
+	DWORD dwMsgBytes = 0;
+	DWORD dwMsgNum = 0;
 
 	//스레드 아이디를 비교해서 스레드가 가질 락 인덱스를 가진다.
 	for (DWORD i = 0; i < arg->m_dwLockNum; i++)
 	{
-		if (arg->m_pThreadIdArr[i] == currentThreadId)
+		if (arg->m_pThreadIdArr[i] == dwCurrentThreadId)
 			dwLockIndex = i;
 	}
 
-
 	while (arg->m_bWorkerThreadLive)
 	{
-		if (GetQueuedCompletionStatus(completionport, //CompletionPort 핸들
-			&transferredBytes,				//비동기 입출력 작업으로 전송된 바이트
+		BOOL bRet = GetQueuedCompletionStatus(completionport, //CompletionPort 핸들
+			&dwTransferredBytes,				//비동기 입출력 작업으로 전송된 바이트
 			(PULONG_PTR)&key,			//CreateIoCompletionPort함수 호출시 전달한 세번째 인자가 여기 저장
 			&lpOverlapped,			//비동기 입출력 함수 호출 시 전달한 오버랩 구조체 주소값.
-			INFINITE) == 0)
+			INFINITE);
+		
+		if (lpOverlapped == nullptr) 
 		{
-			CIocp* piocp = (CIocp*)key;
-			IODATA* pioData = (IODATA*)lpOverlapped;
-			std::cout << pioData->socket << "Socket " << "GetQueuedCompletionStatus fail : " << WSAGetLastError() << std::endl;
-			
-			arg->CloseSocket(piocp->m_uConnectionIndex);
+			printf("lpOverlapped = nullptr \n");
 			continue;
 		}
 
-
-		if (key == 0)
+		/*if (key == NULL)
 		{
-			break;
+			continue;
+		}*/
+		
+		CIocp* pIocp = (CIocp*)key;
+		OverlappedEX* pOverlapped = (OverlappedEX*)lpOverlapped;
+		CConnection* pConnection = pIocp->GetConnection(pOverlapped->dwIndex);
+		SOCKET socket = pConnection->GetSocket();
+
+		printf("transferredBytes = %d\n", dwTransferredBytes);
+		printf("eIoType = %d \n", (int)pOverlapped->eIoType);
+
+		if (bRet == FALSE) 
+		{
+			printf("Socket = %d GetQueuedCompletionStatus Fail WSAGetLastError = %d \n", socket, WSAGetLastError());
+			arg->CloseConnection(pIocp->m_uConnectionIndex);
+			continue;
+		}	
+
+		
+		//GetQueuedCompletionStatus 해서 가져오는데 성공했는데 전달받은 패킷이 0이면 접속이 끊긴 것으로 판단.
+		if (dwTransferredBytes == 0
+			&& pOverlapped->eIoType != IOType::ACCEPT
+			&& pOverlapped->eIoType != IOType::CONNECT)
+		{
+			printf("dwTransferredBytes = 0 \n");
+			arg->CloseConnection(pIocp->m_uConnectionIndex);
+
+			continue;
 		}
 
-		CIocp* piocp = (CIocp*)key;
-		IODATA* pioData = (IODATA*)lpOverlapped;
-		//std::cout << "trnasferredbytes = " << transferredBytes << std::endl;
-		//std::cout << "iotype = " << (int)pioData->ioType << std::endl;
-		//DWORD currentThreadId = GetCurrentThreadId();
-		if (pioData->ioType == IOType::ACCEPT) { std::cout << currentThreadId << "번 스레드 iotype = accept\n"; }
-		else if (pioData->ioType == IOType::CONNECT) { std::cout << currentThreadId << "번 스레드 iotype = connect\n"; }
-		else if (pioData->ioType == IOType::DISCONNECT) { std::cout << currentThreadId << "번 스레드 iotype = disconnect\n"; }
-		//else if (pioData->ioType == IOType::RECV) { std::cout << currentThreadId << "번 스레드 iotype = recv\n"; }
-		//else if (pioData->ioType == IOType::SEND) { std::cout << currentThreadId << "번 스레드 iotype = send\n"; }
-		//std::cout << currentThreadId << "번 스레드 iotype = " << (int)pioData->ioType << std::endl;
+		printf("CurrentTreadId = %d IoType = %d \n", dwCurrentThreadId, pOverlapped->eIoType);
 
-
-
-		if (pioData->ioType == IOType::CONNECT)
+		if (pOverlapped->eIoType == IOType::CONNECT)
 		{
-			if (setsockopt(pioData->socket, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0) == SOCKET_ERROR)
+			if (setsockopt(pConnection->GetSocket(), SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0) == SOCKET_ERROR)
 			{
-				std::cout << "Set Socket option Update Connect Context Error :" << WSAGetLastError() << std::endl;
+				printf("ConnectEX SocketOption Fail WSAGetLastError = %d\n", WSAGetLastError());
 			};
-			std::cout << pioData->socket << "Socket Connected\n";
+			
+			printf("Socket = %d Connected \n", socket);
 
-			piocp->m_isConnected = true;
-			//arg->OnConnect(piocp->m_Socket);
-			OnConnect(pioData->uIndex);
+			pConnection->SetConnectionStatus(true);
+			OnConnect(pOverlapped->dwIndex);
 
-			CIocp* pConnection = arg->GetConnection(pioData->uIndex);
-			arg->RecvSet(pConnection);
+			pConnection->PostRecv();
+			//arg->RecvSet(pConnection);
 			continue;
 		}
-		if (pioData->ioType == IOType::DISCONNECT)
+		if (pOverlapped->eIoType == IOType::DISCONNECT)
 		{
 			//서버는 ReAccecptEx하면서 클라이언트는 소켓을 다시 할당하면서 InitConnectPool에서 isConnected를 false처리하기 때문에 여기서 하지 않는다.
 			//클라는 isConnected인 소켓이 없으면 다시 소켓을 커넥션 수 만큼 만들기 때문에 판단하기 위해서 false로 만들지 않는다.
 			//piocp->isConnected = false;
-			std::string sSocket = std::to_string(piocp->m_socket);
-			std::cout << "Closing socket " + sSocket << std::endl;
-			//piocp->OnClose();
-			OnClose(pioData->uIndex);
+			printf("IOType is Disconnect. Socket = %d \n", socket);
+			OnClose(pOverlapped->dwIndex);
 
 			if (arg->m_eCSType == ECSType::SERVER)
-				arg->ReAcceptSocket(pioData->uIndex);
+				arg->ReAcceptSocket(pOverlapped->dwIndex);
+			
 			continue;
 		}
-		//GetQueuedCompletionStatus 해서 가져오는데 성공했는데 전달받은 패킷이 0이면 접속이 끊긴 것으로.
-		if (transferredBytes == 0 
-			&& pioData->ioType != IOType::ACCEPT 
-			&& pioData->ioType != IOType::CONNECT)
-		{
-			//piocp->OnClose();
-			std::cout << "Enter 0byte\n";
-			arg->CloseSocket(piocp->m_uConnectionIndex);
-
-			continue;
-		}
-
 
 		//recv send 구분
 		//비동기 입출력에서 오버랩구조체를 인자로 전달할 때 오버랩구조체를 멤버로 가진 구조체를 오버랩으로 캐스팅해서 보내고
 		//GetQueuedCompletionStatus에서 받은 오버랩 구조체를 다시 원래 구조체로 캐스팅하면 다른 멤버도 받아올 수 있다.
 		//그런 방법으로 IOType Enum을 끼어넣어서 받아와서 구분짓는다.
 		//GetQueuedCompletionStatus 에 들어오는 key 값에다가 객체 주소를 넘겨받아서 가져온다. 
-
-		if (pioData->ioType == IOType::ACCEPT)
+		if (pOverlapped->eIoType == IOType::ACCEPT)
 		{
-			if (setsockopt(pioData->socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char*)&(arg->m_ListenSocket), sizeof(SOCKET)) == SOCKET_ERROR)
+			if (setsockopt(socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char*)&(arg->m_ListenSocket), sizeof(SOCKET)) == SOCKET_ERROR)
 			{
-				std::cout << "Set Socket Option Update Accept Context Error : " << WSAGetLastError() << std::endl;
+				printf("AcceptEX SocketOption Fail WSAGetLastError = %d\n", WSAGetLastError());
 			};
+
 			SOCKADDR_IN* sockAddr = NULL;
 			int addrlen = sizeof(SOCKADDR);
 			SOCKADDR_IN* remoteAddr = NULL;
 			int remoteaddrlen = sizeof(SOCKADDR_IN);
-			GetAcceptExSockaddrs(pioData->buff,
+			GetAcceptExSockaddrs(pOverlapped->wsabuff.buf, //커넥션의 m_AddrBuf
 				0,
 				sizeof(SOCKADDR_IN) + 16,
 				sizeof(SOCKADDR_IN) + 16,
@@ -421,106 +432,124 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 				(SOCKADDR**)&remoteAddr,
 				&remoteaddrlen);
 
-			std::string sSocket = std::to_string(pioData->socket);
+			//std::string sSocket = std::to_string(pIoData->socket);
 			//std::string sAddr = inet_ntoa(sockAddr->sin_addr);
 			//std::string sPort = std::to_string(ntohs(sockAddr->sin_port));
-			std::string sRemoteAddr = inet_ntoa(remoteAddr->sin_addr);
-			std::string sRemotePort = std::to_string(ntohs(remoteAddr->sin_port));
+			//std::string sRemoteAddr = inet_ntoa(remoteAddr->sin_addr);
+			//std::string sRemotePort = std::to_string(ntohs(remoteAddr->sin_port));
+			
+			char* szRemoteAddr = inet_ntoa(remoteAddr->sin_addr);
+			DWORD dwRemotePort = ntohs(remoteAddr->sin_port);
 
-			static int a = 1;
-			std::cout << "접속 개수= " << a << "소켓 넘버=" + sSocket + "클라이언트 접속:IP 주소=" + sRemoteAddr + "포트 번호=" + sRemotePort << std::endl;
-			a++;
+			static int iAcceptCnt = 0;
+			iAcceptCnt++;
+			printf("Accept Cnt = %d\n", iAcceptCnt);
+			printf("Accept Socket = %d ip = %s port = %d \n", socket, inet_ntoa(remoteAddr->sin_addr), ntohs(remoteAddr->sin_port));
 
-			//piocp->OnAccept(pioData->connectSocket);
-			CIocp::OnAccept(pioData->uIndex);
+			CIocp::OnAccept(pOverlapped->dwIndex);
 
-			CIocp* pConnection = arg->GetConnection(pioData->uIndex);
-			pConnection->m_isConnected = true;
-			pConnection->m_uRemotePort = ntohs(remoteAddr->sin_port);
-			pConnection->m_szRemoteIP = sRemoteAddr;
-			arg->RecvSet(pConnection);
+			pConnection->SetConnectionStatus(true);
+			pConnection->SetRemoteIP(szRemoteAddr, ADDR_BUFF_SIZE);
+			pConnection->SetRemotePort(dwRemotePort);
+			//arg->RecvSet(pConnection);
+			pConnection->PostRecv();
 
 			continue;
 		}
+		else if (pOverlapped->eIoType == IOType::RECV)
+		{			
 
-		else if (pioData->ioType == IOType::RECV)
+			pConnection->RecvProcess(dwTransferredBytes, &pMsg, &dwMsgBytes, &dwMsgNum);
+			pConnection->CheckReset();
+
+			//라이트 큐에 삽입
+			pIocp->PushWriteQueue(pOverlapped->dwIndex, pMsg, dwMsgNum, dwMsgBytes, dwLockIndex);
+			//Recv 오버랩 재설정
+			pConnection->PostRecv();
+		}
+
+		/*
+		else if (pIoData->ioType == IOType::RECV)
 		{
 			//std::cout << *(int*)(pioData->Buff + 4) << "번 패킷 " << transferredBytes << "바이트 수신" << std::endl;
 
-			piocp->m_uIoPos = transferredBytes;
+			pIocp->m_uIoPos = dwTransferredBytes;
 
 			PacketInfo packetInfo;
-			packetInfo.pConnection = piocp;
+			packetInfo.pConnection = pIocp;
 			while (1)
 			{
 				//임시 버퍼에 남은 패킷이 있으면 iobuffer에 있는 것이 패킷의 시작부분이 아니라고 봄.
-				if (piocp->m_uTempBuffPos > 0)
+				if (pIocp->m_uTempBuffPos > 0)
 				{
 					//임시 버퍼에서 4바이트 읽은 크기가 임시 버퍼와 io버퍼의 크기보다 크면 쪼개져서 덜 받은 패킷으로 판단.
-					if (*(int*)piocp->m_pTempBuff > piocp->m_uTempBuffPos + piocp->m_uIoPos)
+					if (*(int*)pIocp->m_pTempBuff > pIocp->m_uTempBuffPos + pIocp->m_uIoPos)
 					{
-						memcpy(piocp->m_pTempBuff + piocp->m_uTempBuffPos, pioData->buff, piocp->m_uIoPos);
-						piocp->m_uTempBuffPos += piocp->m_uIoPos;
-						piocp->m_uIoPos = 0;
+						memcpy(pIocp->m_pTempBuff + pIocp->m_uTempBuffPos, pIoData->buff, pIocp->m_uIoPos);
+						pIocp->m_uTempBuffPos += pIocp->m_uIoPos;
+						pIocp->m_uIoPos = 0;
 						goto MAKEPACKETEND;
 					}
 					//짤려서 뒤에 들어온 패킷부분을 임시 버퍼에 이어준다.
-					memcpy(piocp->m_pTempBuff + piocp->m_uTempBuffPos, pioData->buff, *(int*)piocp->m_pTempBuff - piocp->m_uTempBuffPos);
+					memcpy(pIocp->m_pTempBuff + pIocp->m_uTempBuffPos, pIoData->buff, *(int*)pIocp->m_pTempBuff - pIocp->m_uTempBuffPos);
 					//패킷을 만들어서 라이트버퍼에 넣어준다.
-					memcpy(packetInfo.Buff, piocp->m_pTempBuff, *(int*)piocp->m_pTempBuff);
+					memcpy(packetInfo.buff, pIocp->m_pTempBuff, *(int*)pIocp->m_pTempBuff);
 					arg->PushWriteBuffer(&packetInfo, dwLockIndex);
 					//io버퍼에서 임시 버퍼로 넘겨준 만큼 땡겨준다.
-					memmove(pioData->buff, pioData->buff + *(int*)piocp->m_pTempBuff - piocp->m_uTempBuffPos, sizeof(pioData->buff) - (*(int*)piocp->m_pTempBuff - piocp->m_uTempBuffPos));
-					piocp->m_uIoPos -= *(int*)piocp->m_pTempBuff - piocp->m_uTempBuffPos;
+					memmove(pIoData->buff, pIoData->buff + *(int*)pIocp->m_pTempBuff - pIocp->m_uTempBuffPos, sizeof(pIoData->buff) - (*(int*)pIocp->m_pTempBuff - pIocp->m_uTempBuffPos));
+					pIocp->m_uIoPos -= *(int*)pIocp->m_pTempBuff - pIocp->m_uTempBuffPos;
 					//임시 버퍼를 비워준다.
-					ZeroMemory(piocp->m_pTempBuff, _msize(piocp->m_pTempBuff));
-					piocp->m_uTempBuffPos = 0;
+					ZeroMemory(pIocp->m_pTempBuff, _msize(pIocp->m_pTempBuff));
+					pIocp->m_uTempBuffPos = 0;
 				}
 
 				//패킷의 사이즈가 io버퍼 위치보다 크면 뒤에 더 받을 패킷이 있다고 보고 임시 버퍼에 불완전한 패킷 저장.
-				if (piocp->m_uIoPos < *(int*)pioData->buff)
+				if (pIocp->m_uIoPos < *(int*)pIoData->buff)
 				{
 					//임시 버퍼에 불완전 패킷 저장.
-					memcpy(piocp->m_pTempBuff + piocp->m_uTempBuffPos, pioData->buff, piocp->m_uIoPos);
-					piocp->m_uTempBuffPos += piocp->m_uIoPos;
+					memcpy(pIocp->m_pTempBuff + pIocp->m_uTempBuffPos, pIoData->buff, pIocp->m_uIoPos);
+					pIocp->m_uTempBuffPos += pIocp->m_uIoPos;
 					//불완전한 패킷 보내고 나머지를 땡긴다.
-					memmove(pioData->buff, pioData->buff + piocp->m_uIoPos, sizeof(pioData->buff) - piocp->m_uIoPos);
+					memmove(pIoData->buff, pIoData->buff + pIocp->m_uIoPos, sizeof(pIoData->buff) - pIocp->m_uIoPos);
 					//땡긴 나머지 부분을 0으로 채워준다.
-					ZeroMemory(pioData->buff + (sizeof(pioData->buff) - piocp->m_uIoPos), piocp->m_uIoPos);
-					piocp->m_uIoPos = 0;
+					ZeroMemory(pIoData->buff + (sizeof(pIoData->buff) - pIocp->m_uIoPos), pIocp->m_uIoPos);
+					pIocp->m_uIoPos = 0;
 					goto MAKEPACKETEND;
 				}
 
 				//패킷이 시작부분이라고 보고.
-				int packetSize = *(int*)pioData->buff;
+				int packetSize = *(int*)pIoData->buff;
 
 				if (packetSize == 0)
 					goto MAKEPACKETEND;
 
 				//패킷을 만들어서 라이트 버퍼에 저장. 
-				memcpy(packetInfo.Buff, pioData->buff, packetSize);
+				memcpy(packetInfo.buff, pIoData->buff, packetSize);
 				arg->PushWriteBuffer(&packetInfo, dwLockIndex);
-				piocp->m_uIoPos -= packetSize;
-				memmove(pioData->buff, pioData->buff + packetSize, sizeof(pioData->buff) - packetSize);
-				ZeroMemory(pioData->buff + (sizeof(pioData->buff) - packetSize), packetSize);
+				pIocp->m_uIoPos -= packetSize;
+				memmove(pIoData->buff, pIoData->buff + packetSize, sizeof(pIoData->buff) - packetSize);
+				ZeroMemory(pIoData->buff + (sizeof(pIoData->buff) - packetSize), packetSize);
 			}
 
 		MAKEPACKETEND:
-			arg->RecvSet(piocp);
+			arg->RecvSet(pIocp);
 		}
-
+		*/
 		//비동기 송신 이후 송신했다는 결과를 통지받을 뿐
-		else if (pioData->ioType == IOType::SEND)
+		else if (pOverlapped->eIoType == IOType::SEND)
 		{
+			printf("completion %x\n", pOverlapped);
+			printf("transferredBytes %d\n", dwTransferredBytes);
 			//std::cout << *(int*)(pioData->Buff + 4) << "번 패킷 " << transferredBytes << "바이트 송신" << std::endl;
-			delete pioData;
+
 		}
 
 	}
-	//DWORD currentThreadId = GetCurrentThreadId();
-	CString ds;
-	ds.Format(L"%d 스레드 종료\n", currentThreadId);
-	OutputDebugStringW(ds);
+
+	char szLog[32];
+	memset(szLog, 0, sizeof(szLog));
+	sprintf_s(szLog, 32, "%d Tread END\n", dwCurrentThreadId);
+	OutputDebugStringA(szLog);
 	_endthreadex(0);
 
 	return 0;
@@ -528,81 +557,106 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 
 void CIocp::PacketProcess()
 {
-	while (1)
+	//리드 버퍼 다 처리했고, 라이트버퍼에 남아있으면 스왑.
+	/*if (m_dwReadQueuePos >= GetReadContainerSize()
+		&& GetWriteContainerSize() != 0)
 	{
-		//리드 버퍼 다 처리했고, 라이트버퍼에 남아있으면 스왑.
-		if (this->m_uReadBuffPos >= this->GetReadContainerSize() && this->GetWriteContainerSize() != 0)
-		{
-			this->SwapRWBuffer();
-		}
+		SwapRecvQueue();
+	}*/
 
-		//리드버퍼 다 처리했으면 스킵.
-		if (this->m_uReadBuffPos >= this->GetReadContainerSize()) break;
+	//리드버퍼 다 처리했으면 탈출
+	if (m_dwReadQueuePos >= m_dwReadQueueSize)
+		goto SWAPCHECK;
 
-		//std::cout << "read버퍼 size = " << this->GetReadContainerSize() << std::endl;
+	for (DWORD i = 0; i < m_dwReadQueueSize; i++) 
+	{	
+		printf("Read Queue Count = %d\n", m_dwReadQueueSize);
 
-		/*PacketInfo packetInfo = (*this->m_pReadBuff)[this->m_uReadBuffPos];
+		PacketInfo* pPacketInfo = &(*m_pReadQueue)[m_dwReadQueuePos];
+		DWORD dwIndex = pPacketInfo->dwIndex;
+		CConnection* pConnection = GetConnection(dwIndex);
 
-		if (packetInfo.pConnection == NULL)
-			continue;*/
+		if (pConnection->GetConnectionStaus() == false)
+			continue;
 
-		PacketInfo* packetInfo = &(*this->m_pReadBuff)[this->m_uReadBuffPos];
+		/*char szLog[32];
+		memset(szLog, 0, sizeof(szLog));
+		sprintf_s(szLog, "%d 패킷 처리\n", *(int*)(pPacketInfo->buff + 4));
+		OutputDebugStringA(szLog);*/
 
+		OnRecv(pPacketInfo->dwIndex, pPacketInfo->buff, pPacketInfo->dwLength);
 
-		/*char log[24];
-		sprintf_s(log, "%d 패킷 처리\n", *(int*)(packetInfo.Buff + 4));
-		OutputDebugStringA(log);*/
-		OnRecv(packetInfo);
-		//packetInfo.pConnection->OnReceive();
-		this->m_uReadBuffPos++;
+		m_dwReadQueuePos++;
 	}
+
+	SWAPCHECK:
+	if (m_dwWriteQueueSize > 0)
+	{
+		SwapRecvQueue();
+	}
+	
 }
+
+/*
 void CIocp::SendPacketProcess()
 {
 	while (1)
 	{
-		if (m_uSendBuffPos >= m_pSendBuff->size())
+		if (m_dwSendQueuePos >= m_pSendQueue.size())
 		{
-			m_pSendBuff->clear();
-			this->m_uSendBuffPos = 0;
+			m_pSendQueue.clear();
+			this->m_dwSendQueuePos = 0;
 			break;
 		}
 
-		PacketInfo sendPacket = (*m_pSendBuff)[m_uSendBuffPos];
+		PacketInfo sendPacket = m_pSendQueue[m_dwSendQueuePos];
 
 		if (sendPacket.pConnection == NULL)
 			continue;
 
 		CIocp* pIocp = sendPacket.pConnection;
-		int size = *(int*)sendPacket.Buff;
-		pIocp->Send(pIocp->m_uConnectionIndex, sendPacket.Buff, size);
+		int size = *(int*)sendPacket.buff;
+		pIocp->Send(pIocp->m_uConnectionIndex, sendPacket.buff, size);
 
-		this->m_uSendBuffPos++;
+		this->m_dwSendQueuePos++;
 	}
 }
-void CIocp::SwapRWBuffer()
+*/
+void CIocp::SwapRecvQueue()
 {
+	//스왑 중에 라이트 큐에 넣지 못하도록 일괄 락.
 	for (DWORD i = 0; i < m_dwLockNum; i++)
 	{
 		AcquireSRWLockExclusive(m_pBufferSwapLock + i);
 	}
 
-	//std::cout << "스왑 전 read버퍼 size = " << GetReadContainerSize() << " write버퍼 size = " << GetWriteContainerSize() << std::endl;
-	m_pReadBuff->clear();
+	printf("Prev ReadQueueSize = %d WriteQueueSize = %d \n", m_dwReadQueueSize, m_dwWriteQueueSize);
 
-	auto tempBuff = m_pWriteBuff;
-	m_pWriteBuff = m_pReadBuff;
-	m_pReadBuff = tempBuff;
-	//std::cout << "스왑 후 read버퍼 size = " << GetReadContainerSize() << " write버퍼 size = " << GetWriteContainerSize() << std::endl;
-	InterlockedExchange(&m_uInterLockWriteBuffPos, -1);
-	m_uReadBuffPos = 0;
+	//리드 큐 다 읽었을 때 스왑이 일어남으로 리드 큐 비워준다. 
+	//m_pReadQueue->clear();
+
+	//스왑
+	auto tempBuff = m_pWriteQueue;
+	m_pWriteQueue = m_pReadQueue;
+	m_pReadQueue = tempBuff;
+
+	//라이트큐에 현재까지 쌓은 위치가 사이즈. 스왑 하면서 리드큐에 넣는다.
+	m_dwReadQueueSize = m_dwWriteQueueSize;
+	m_dwReadQueuePos = 0;
+	InterlockedExchange(&m_ilWriteQueuePos, -1); //락으로 쌓여있는 상태니까 여긴 인터락 아니어도 될 거 같긴 한데.
+	InterlockedExchange(&m_dwWriteQueueSize, 0);
+
+	printf("After ReadQueueSize = %d WriteQueueSize = %d \n", m_dwReadQueueSize, m_dwWriteQueueSize);
 
 	for (DWORD i = 0; i < m_dwLockNum; i++)
 	{
 		ReleaseSRWLockExclusive(m_pBufferSwapLock + i);
 	}
+
+	SetEvent(m_WriteQueueWaitEvent);
 }
 
+/*
 void CIocp::PushWriteBuffer(PacketInfo* packetInfo, DWORD dwLockIndex)
 {
 	//큐에 인터락의 위치가 할당되어 있지 않다면 크기 2배 증가.
@@ -610,81 +664,131 @@ void CIocp::PushWriteBuffer(PacketInfo* packetInfo, DWORD dwLockIndex)
 	AcquireSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
 
 	//인터락을 통해 원자적으로 크기 증가
-	ULONG buffPos = InterlockedIncrement(&m_uInterLockWriteBuffPos);
+	LONG buffPos = InterlockedIncrement(&m_ilWriteQueuePos);
 
-	if (buffPos >= m_pWriteBuff->size())
+	if (buffPos >= m_pWriteQueue->size())
 	{
-		if (m_pWriteBuff->size() == 0)
-			m_pWriteBuff->resize(1);
+		if (m_pWriteQueue->size() == 0)
+			m_pWriteQueue->resize(1);
 
-		m_pWriteBuff->resize(m_pWriteBuff->size() * 2);
+		m_pWriteQueue->resize(m_pWriteQueue->size() * 2);
 	}
 
-	(*m_pWriteBuff)[buffPos] = *packetInfo;
+	(*m_pWriteQueue)[buffPos] = *packetInfo;
 
 	//std::cout << *(int*)(packetInfo->Buff + 4) << "번 패킷 라이트버퍼에 씀" << std::endl;
 
 	ReleaseSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
 }
+*/
 
-bool CIocp::InitAcceptPool(UINT num)
+void CIocp::PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex)
 {
-	DWORD flags;
-	DWORD recvBytes;
+	//큐에 푸쉬하는 도중 큐 스왑이 일어나지 않기 위한 락
+	AcquireSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
 
-	for (int i = 0; i < num; i++)
+	int iTotalBytes = 0; //완성된 패킷의 헤더에 있는 사이즈를 더한 값
+
+	for(DWORD i = 0; i < dwMsgNum; i++)
+	{
+		int iBytes = *(DWORD*)pMsg; //패킷 헤더에서 사이즈를 읽는다. 
+		iTotalBytes += iBytes;
+		DWORD uQueuePos = InterlockedIncrement(&m_ilWriteQueuePos);
+
+		//패킷 하나가 가질 수 있는 사이즈 넘기는지 체크
+		if (iBytes > PACKET_BUFF_MAX)
+		{
+			printf("%s %d", __FUNCTION__, __LINE__);
+			__debugbreak();
+		}
+
+		//큐 사이즈가 넘치면 큐 스왑이 일어날 때 까지 대기한다.
+		if (uQueuePos >= RECV_QUEUE_MAX) 
+		{
+			printf("RecvQueue OVER. Wait Swap \n");
+			WaitForSingleObject(m_WriteQueueWaitEvent, INFINITE);
+			//스왑 후 큐 위치를 다시 구한다.
+			uQueuePos = InterlockedIncrement(&m_ilWriteQueuePos);
+		}
+
+		PacketInfo* pPacketInfo = &(*m_pWriteQueue)[uQueuePos];
+		pPacketInfo->dwIndex = dwIndex;
+		memcpy(pPacketInfo->buff, pMsg, iBytes);
+
+		pMsg += iBytes;
+		InterlockedIncrement(&m_dwWriteQueueSize);
+	}
+
+	//패킷 헤더에서의 사이즈와 인자로 받은 사이즈가 다른지 체크
+	if (iTotalBytes != dwMsgBytes) 
+	{
+		printf("%s %d", __FUNCTION__, __LINE__);
+		__debugbreak();
+	}
+
+	ReleaseSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
+}
+
+bool CIocp::InitAcceptPool(DWORD dwNum)
+{
+	DWORD dwFlags;
+	DWORD dwBytes;
+
+	for (DWORD i = 0; i < dwNum; i++)
 	{
 		//오버랩IO를 위해 구조체 세팅
-		IODATA* pioData = new IODATA;
-		if (pioData == NULL) return false;
-		ZeroMemory(pioData, sizeof(IODATA));
-		pioData->socket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_IP,
-			NULL, 0, WSA_FLAG_OVERLAPPED);
-		pioData->dataBuff.len = 0;
-		pioData->dataBuff.buf = NULL;
-		pioData->ioType = IOType::ACCEPT;
-		flags = 0;
-		recvBytes = 0;
+		CConnection* pConnection = GetConnection(i);
+		OverlappedEX* pOverlapped = pConnection->GetRecvOverlapped();
+		SOCKET socket = pConnection->GetSocket();
 
-		CIocp* pConnection = m_ConnectionList[i];
-		if (pConnection == NULL) return false;
-		pConnection->m_isConnected = false;
-		pConnection->m_socket = pioData->socket;
-		pConnection->m_pIoData = pioData;
+		if (pOverlapped == nullptr)
+			return false;
 
-		pioData->uIndex = pConnection->m_uConnectionIndex;
+		ZeroMemory(&pOverlapped->overlapped, sizeof(OVERLAPPED));
+		
+		pOverlapped->wsabuff.len = ADDR_BUFF_SIZE;
+		pOverlapped->wsabuff.buf = pConnection->GetAddrBuff();
+		pOverlapped->eIoType = IOType::ACCEPT;
+		dwFlags = 0;
+		dwBytes = 0;
 
-		InitSocketOption(pConnection->m_socket);
+		pConnection->SetConnectionStatus(false);
+
+		InitSocketOption(socket);
 
 		if (AcceptEx(m_ListenSocket,
-			pioData->socket,
-			pioData->buff,
-			0,
+			socket,
+			pOverlapped->wsabuff.buf,
+			0, //Accept 하면서 데이터를 바로 수신하지 않고 연결만 수락하기 위해 0바이트 설정.
 			sizeof(SOCKADDR_IN) + 16,
 			sizeof(SOCKADDR_IN) + 16,
-			&recvBytes,
-			(LPOVERLAPPED)pioData) == FALSE)
+			&dwBytes,
+			(LPOVERLAPPED)pOverlapped) == FALSE)
 		{
 			if (WSAGetLastError() != ERROR_IO_PENDING)
 			{
-				std::cout << "AcceptEx fail" << WSAGetLastError() << std::endl;
+				printf("AcceptEx Fail. WSAGetLastError = %d \n", WSAGetLastError());
+				return false;
 			}
 
 		}
 
-		////소켓과 iocp 연결
-		if ((CreateIoCompletionPort((HANDLE)pioData->socket,
+		//소켓과 iocp 연결
+		if ((CreateIoCompletionPort((HANDLE)socket,
 			m_CompletionPort,
-			(ULONG_PTR)pConnection,
+			(ULONG_PTR)this,
 			0)) == NULL)
 		{
-			std::cout << "CreateIoCompletionPort bind error" << std::endl;
+			printf("CreateIoCompletionPort bind error \n");
+			return false;
 		}
+
 	}
 
 	return true;
 }
 
+/*
 bool CIocp::InitConnectPool(UINT num)
 {
 	//bind
@@ -693,26 +797,25 @@ bool CIocp::InitConnectPool(UINT num)
 	addr.sin_family = AF_INET;
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-	DWORD flags;
-	DWORD recvBytes;
+	DWORD dwFlags;
+	DWORD dwBytes;
 
 	for (int i = 0; i < num; i++)
 	{
 		//오버랩IO를 위해 구조체 세팅
 		IODATA* pioData = new IODATA;
-		if (pioData == NULL) return false;
+		
+		if (pioData == NULL) 
+			return false;
+
 		ZeroMemory(pioData, sizeof(IODATA));
 		pioData->socket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_IP,
 			NULL, 0, WSA_FLAG_OVERLAPPED);
-		pioData->dataBuff.len = 0;
-		pioData->dataBuff.buf = NULL;
+		pioData->WSABuff.len = 0;
+		pioData->WSABuff.buf = NULL;
 		pioData->ioType = IOType::CONNECT;
-		flags = 0;
-		recvBytes = 0;
-
-		CString ds;
-		ds.Format(L"새로 연결한 소켓%d\n", pioData->socket);
-		OutputDebugString(ds);
+		dwFlags = 0;
+		dwBytes = 0;
 
 		CIocp* pConnection = m_ConnectionList[i];
 		pConnection->m_socket = pioData->socket;
@@ -720,18 +823,18 @@ bool CIocp::InitConnectPool(UINT num)
 		pConnection->m_isConnected = false;
 		pConnection->m_pMainConnection = this;
 
-		pioData->uIndex = pConnection->m_uConnectionIndex;
+		pioData->dwIndex = pConnection->m_uConnectionIndex;
 
 		InitSocketOption(pConnection->m_socket);
 
 		//TCP홀펀칭 이미 사용중인 포트에 다른 소켓 강제 바인딩 
-		SetReuseSocketOpt(pConnection->m_socket);
+		//SetReuseSocketOpt(pConnection->m_socket);
 
 		//ConnectEx용 bind
 		if (bind(pConnection->m_socket, (PSOCKADDR)&addr,
 			sizeof(addr)) == SOCKET_ERROR)
 		{
-			std::cout << "ConnectEx bind fail" << std::endl;
+			printf("ConnectEx bind Fail \n");
 			return false;
 		}
 
@@ -741,286 +844,272 @@ bool CIocp::InitConnectPool(UINT num)
 			(ULONG_PTR)pConnection,
 			0)) == NULL)
 		{
-			std::cout << "CreateIoCompletionPort bind error" << std::endl;
+			printf("CreateIoCompletionPort Bind Error \n");
 			return false;
 		}
 
 	}
 	return true;
 }
+*/
 
 bool CIocp::ReAcceptSocket(UINT uIndex)
 {
 	//DWORD flags;
-	DWORD recvBytes;
+	DWORD dwBytes = 0;
 
-	CIocp* pConnection = GetConnection(uIndex);
-	pConnection->m_isConnected = false;
-	pConnection->m_pIoData->ioType = IOType::ACCEPT;
+	CConnection* pConnection = GetConnection(uIndex);
+	OverlappedEX* pOverlapped = pConnection->GetRecvOverlapped();
+	SOCKET socket = pConnection->GetSocket();
+
+	if (pOverlapped == nullptr)
+		return false;
+
+	ZeroMemory(&pOverlapped->overlapped, sizeof(OVERLAPPED));
+
+	pOverlapped->wsabuff.len = ADDR_BUFF_SIZE;
+	pOverlapped->wsabuff.buf = pConnection->GetAddrBuff();
+	pOverlapped->eIoType = IOType::ACCEPT;
+
+	pConnection->SetConnectionStatus(false);
+
 	if (AcceptEx(m_ListenSocket,
-		pConnection->m_socket,
-		pConnection->m_pIoData->buff,
+		socket,
+		pOverlapped->wsabuff.buf,
 		0,
 		sizeof(SOCKADDR_IN) + 16,
 		sizeof(SOCKADDR_IN) + 16,
-		&recvBytes,
-		(LPOVERLAPPED)pConnection->m_pIoData) == FALSE)
+		&dwBytes,
+		(LPOVERLAPPED)pOverlapped) == FALSE)
 	{
 		if (WSAGetLastError() != ERROR_IO_PENDING)
 		{
-			std::cout << "ReAcceptEx fail: " << WSAGetLastError() << std::endl;
+			printf("ReAcceptEx Fail. WSAGetLastError = %d \n", WSAGetLastError());
 			return false;
 		}
 	}
-	std::cout << socket << "REAcceptEx succ" << std::endl;
+
+	printf("uIndex = %d socket = %d ReAccept \n", uIndex, socket);
 	return true;
 }
 
-void CIocp::CloseSocket(UINT uIndex)
+bool CIocp::CloseConnection(DWORD dwIndex)
 {
-	//TF_DISCONNECT넣으면 10022 WSAEINVAL 오류 바인딩 실패. 이미 bind된 소켓에 바인드하거나 주소체계가 일관적이지 않을 때
+	//TF_REUSE_SOCKET 하여 소켓 재활용 한다.
+	//비정상 적인 상황이나 종료 시에 CConnection이 가진 CloseSocket 으로 진짜 소켓 해제.
+	
+	CConnection* pConnection = GetConnection(dwIndex);
+	OverlappedEX* pOverlapped = pConnection->GetRecvOverlapped();
+	SOCKET socket = pConnection->GetSocket();
+
+	if (pOverlapped == nullptr)
+		return false;
+
+	ZeroMemory(&pOverlapped->overlapped, sizeof(OVERLAPPED));
+
+	pOverlapped->wsabuff.len = 0;
+	pOverlapped->wsabuff.buf = pConnection->GetRecvRingBuff()->GetReadPtr();
+	pOverlapped->eIoType = IOType::DISCONNECT;
+	pConnection->SetConnectionStatus(false);
+
+	//TF_DISCONNECT넣으면 10022 WSAEINVAL 오류 바인딩 실패. 
 	//lpfnDisconnectEx(socket, NULL, TF_DISCONNECT | TF_REUSE_SOCKET, NULL);
 
-	CIocp* pIocp = GetConnection(uIndex);
-
-	IODATA* pioData = pIocp->m_pIoData;
-	ZeroMemory(&pioData->overlapped, sizeof(OVERLAPPED));
-	pioData->socket = pIocp->m_socket;
-	pioData->dataBuff.len = 0;
-	pioData->dataBuff.buf = pioData->buff;
-	pioData->ioType = IOType::DISCONNECT;
-	pioData->uIndex = uIndex;
-
-	if (lpfnDisconnectEx(pIocp->m_socket, (LPOVERLAPPED)pioData, TF_REUSE_SOCKET, NULL) == FALSE)
+	if (lpfnDisconnectEx(socket,
+		(LPOVERLAPPED)pOverlapped,
+		TF_REUSE_SOCKET,
+		NULL) == FALSE)
 	{
 		if (WSAGetLastError() != ERROR_IO_PENDING)
 		{
-			std::cout << pIocp->m_socket << "Socket " << "DisconnectEx Error : " << WSAGetLastError() << std::endl;
-			return;
+			printf("Socket = %d DissconnectEx Error. WSAGetLastError = %d \n", socket, WSAGetLastError());
+			return false;
 		}
 	};
 
-	std::cout << "Call DisconnectEx" << std::endl;
+	printf("socket = %d DisconnectEX \n", socket);
+
 	//TransmitFile(socket, NULL, 0, 0, (LPOVERLAPPED)pClient->m_ioData, NULL, TF_DISCONNECT | TF_REUSE_SOCKET);
 	//shutdown(socket, SD_BOTH);
 	//closesocket(socket);
+
+	return true;
 }
 
-SOCKET CIocp::Connect(LPCTSTR lpszHostAddress, UINT port)
+SOCKET CIocp::Connect(char* pAddress, UINT port)
 {
-	wchar_t* wszHost;
-	char* szHost;
-	int len;
-
-	wszHost = (LPTSTR)lpszHostAddress;
-	len = WideCharToMultiByte(CP_ACP, 0, wszHost, -1, NULL, 0, NULL, NULL);
-	szHost = new char[len + 1];
-	WideCharToMultiByte(CP_ACP, 0, wszHost, -1, szHost, len, 0, 0);
-
 	//gethostbyname이 deprecated. getaddrinfo를 대신 써서 domain으로 부터 ip를 얻는다. 
-	/*char host[20];
+	/*
+	char host[20];
 	gethostname(host, 20);
 	hostent* hent = gethostbyname(host);
 	in_addr addr;
 	addr.s_addr = *(ULONG*)*hent->h_addr_list;
-	char* address = inet_ntoa(addr);*/
-
-	//test
-	/*SOCKADDR_IN ssockAddr;
-	ZeroMemory(&ssockAddr, sizeof(ssockAddr));
-	ssockAddr.sin_family = AF_INET;
-	ssockAddr.sin_addr.s_addr = inet_addr(szHost);
-	ssockAddr.sin_port = 80;
-	char szBuffer1[128];
-	char szBuffer2[128];
-
-	ZeroMemory(szBuffer1, sizeof(szBuffer1));
-	ZeroMemory(szBuffer2, sizeof(szBuffer2));
-	getnameinfo((const SOCKADDR*)&ssockAddr, sizeof(ssockAddr), szBuffer1, sizeof(szBuffer1), szBuffer2, sizeof(szBuffer2), NI_NUMERICSERV);
-	hostent* hent = gethostbyname(szBuffer1);
-	in_addr addr;
-	addr.s_addr = *(ULONG*)*hent->h_addr_list;
 	char* address = inet_ntoa(addr);
+	*/
 
-	ADDRINFO* pAddrInfotest = NULL;
-	ADDRINFO stAddrInfotest = { 0, };
-	//stAddrInfotest.ai_family = AF_UNSPEC;
-	stAddrInfotest.ai_family = AF_INET;
-	stAddrInfotest.ai_socktype = SOCK_STREAM;
-	stAddrInfotest.ai_protocol = IPPROTO_TCP;
-	if (getaddrinfo(szBuffer1, NULL, &stAddrInfotest, &pAddrInfotest) != 0)
-	{
-		int a = WSAGetLastError();
-	}
-	sockaddr_in* temptest = (sockaddr_in*)pAddrInfotest->ai_addr;
-	char* conAddrtest = inet_ntoa(temptest->sin_addr);*/
-	//testend
-
-	//여기서 호스트로 ip얻는건 불필요한 과정. 밖으로 옮기자.
-	ADDRINFO* pAddrInfo = NULL;
+	ADDRINFO* pAddrInfo = nullptr;
 	ADDRINFO stAddrInfo = { 0, };
-	//stAddrInfo.ai_family = AF_UNSPEC;
 	stAddrInfo.ai_family = AF_INET;
 	stAddrInfo.ai_socktype = SOCK_STREAM;
 	stAddrInfo.ai_protocol = IPPROTO_TCP;
 
-	getaddrinfo(szHost, NULL, &stAddrInfo, &pAddrInfo);
-	if (pAddrInfo == NULL)
+	getaddrinfo(pAddress, NULL, &stAddrInfo, &pAddrInfo);
+
+	if (pAddrInfo == nullptr)
 	{
 		std::cout << "domain convert address fail" << std::endl;
-		delete[] szHost;
-		return NULL;
+		return INVALID_SOCKET;
 	}
-	sockaddr_in* temp = (sockaddr_in*)pAddrInfo->ai_addr;
-	char* conAddr = inet_ntoa(temp->sin_addr);
+
+	sockaddr_in* pSockAddr_in = (sockaddr_in*)pAddrInfo->ai_addr;
+	char* pAddr = inet_ntoa(pSockAddr_in->sin_addr);
 
 	SOCKADDR_IN sockAddr;
 	ZeroMemory(&sockAddr, sizeof(sockAddr));
 	sockAddr.sin_family = AF_INET;
-	//inet_addr이 deprecated되어 inet_pton(AF_INET, char_str, &(sockAddr.sin_addr.s_addr)); 대체해야 하지만...
-	sockAddr.sin_addr.s_addr = inet_addr(conAddr);
+	//inet_addr이 deprecated되어 inet_pton(AF_INET, char_str, &(sockAddr.sin_addr.s_addr));
+	sockAddr.sin_addr.s_addr = inet_addr(pAddr);
 	sockAddr.sin_port = htons(port);
 
-	delete[] szHost;
+	CConnection* pConnection = GetFreeConnection();
 
-	CIocp* pConnection = GetNoneConnectConnection();
+	if (pConnection == nullptr)
+		return INVALID_SOCKET;
+
+	OverlappedEX* pOverlapped = pConnection->GetRecvOverlapped();
+	SOCKET socket = pConnection->GetSocket();
+	/*
 	if (pConnection == NULL)
 	{
 		//다시 커넥트 소켓풀 초기화
-		if (!InitConnectPool(m_nChildSockNum))
+		if (!InitConnectPool(m_dwConnectionMax))
 		{
 			std::cout << "re_InitConnectPool fail" << std::endl;
 		};
 		OutputDebugString(L"커넥션풀 초기화");
-		pConnection = GetNoneConnectConnection();
+		pConnection = GetFreeConnection();
 	}
+	*/
 
 	//어차피 해당 타입이 다른 프로세스로 넘어가진 않는다. 
 	//받는 쪽 워커스레드에서 Accept하면 recv를 다시 연결해 주되 IOType::CONNECT으로 해서
 	//커넥트 시에 발생하는 0바이트 패킷을 연결이 끊어주는 패킷과 구분해주도록 한다.
-	pConnection->m_pIoData->ioType = IOType::CONNECT;
+	pOverlapped->eIoType = IOType::CONNECT;
 
-	if (lpfnConnectEx(pConnection->m_socket,
+	if (lpfnConnectEx(socket,
 		(SOCKADDR*)&sockAddr,
 		sizeof(sockAddr),
 		NULL,
 		0,
 		NULL,
-		(LPOVERLAPPED)pConnection->m_pIoData) == FALSE)
+		(LPOVERLAPPED)pOverlapped) == FALSE)
 	{
 		if (WSAGetLastError() != ERROR_IO_PENDING)
 		{
-			std::cout << "ConnectEx fail: " << WSAGetLastError() << std::endl;
+			printf("ConnectEx Fail. WSAGetLastError = %d \n", WSAGetLastError());
 			return NULL;
 		}
 	};
 
-	return pConnection->m_socket;
+	return socket;
 }
 
-bool CIocp::RecvSet(CIocp* pConnection)
+/*
+bool CIocp::RecvSet(CConnection* pConnection)
 {
-	DWORD flags;
-	DWORD recvBytes;
+	DWORD dwFlags = 0;
+	DWORD dwBytes = 0;
 
 	//오버랩IO를 위해 구조체 세팅
 	IODATA* pioData = pConnection->m_pIoData;
-	if (pioData == NULL) return false;
+
+	if (pioData == NULL) 
+		return false;
+
 	ZeroMemory(pioData, sizeof(IODATA));
 	pioData->socket = pConnection->m_socket;
-	pioData->dataBuff.len = BUFFSIZE;
-	pioData->dataBuff.buf = pioData->buff;
+	pioData->WSABuff.len = RECV_PACKET_MAX;
+	pioData->WSABuff.buf = pioData->buff;
 	pioData->ioType = IOType::RECV;
-	pioData->uIndex = pConnection->m_uConnectionIndex;
-	flags = 0;
-	recvBytes = 0;
+	pioData->dwIndex = pConnection->m_uConnectionIndex;
 
 	if (WSARecv(pConnection->m_socket,
-		&pioData->dataBuff,
+		&pioData->WSABuff,
 		1,
-		&recvBytes,
-		&flags,
+		&dwBytes,
+		&dwFlags,
 		(LPOVERLAPPED)pioData,
 		NULL) == SOCKET_ERROR )
 	{
 		if (WSAGetLastError() != ERROR_IO_PENDING)
 		{
-			int a = WSAGetLastError();
-			std::cout << "WSARecv fail: " << WSAGetLastError() << std::endl;
+			printf("WSARecv Fail. WSAGetLastError = %d \n", WSAGetLastError());
 			return false;
 		}
 	}
-	//std::cout << "Recv bind" << std::endl;
+
 	return true;
 }
+*/
 
-CIocp* CIocp::GetEmptyConnection()
+CConnection* CIocp::GetConnection(DWORD dwIndex)
 {
-	for (auto it = m_ConnectionList.begin(); it != m_ConnectionList.end(); ++it)
+	return m_ConnectionList[dwIndex];
+}
+
+
+
+CConnection* CIocp::GetFreeConnection()
+{
+	for (DWORD i = 0; i < m_dwConnectionMax; i++) 
 	{
-		if ((*it)->m_socket == NULL)
-		{
-			return (*it);
-		}
+		if (m_ConnectionList[i]->GetConnectionStaus() == false)
+			return m_ConnectionList[i];
 	}
-	return NULL;
+	
+	return nullptr;
 }
 
-CIocp* CIocp::GetConnection(UINT uIndex)
-{
-	return m_ConnectionList[uIndex];
-}
-
-
-
-CIocp* CIocp::GetNoneConnectConnection()
-{
-	for (auto it = m_ConnectionList.begin(); it != m_ConnectionList.end(); ++it)
-	{
-		if ((*it)->m_isConnected == false)
-		{
-			return (*it);
-		}
-	}
-	return NULL;
-}
-
-bool CIocp::GetPeerName(CString& peerAdress, UINT& peerPort)
+/*
+bool CIocp::GetPeerName(char* pAddress, WORD* pPort)
 {
 	SOCKADDR_IN addr;
 	int addrlen = sizeof(SOCKADDR_IN);
 	getpeername(m_socket, (sockaddr*)&addr, &addrlen);
 
-	peerAdress = inet_ntoa(addr.sin_addr);
-	peerPort = ntohs(addr.sin_port);
+	char* p = inet_ntoa(addr.sin_addr);
 
-	return false;
+	memcpy(pAddress, p, strlen(p));
+	*pPort = ntohs(addr.sin_port);
+
+	return true;
 }
+*/
 
-
-bool CIocp::Send(UINT uIndex, void* lpBuff, int nBuffSize)
+bool CIocp::Send(DWORD dwIndex, char* pMsg, DWORD dwBytes)
 {
-	DWORD currentThreadId = GetCurrentThreadId();
-	CString ds;
-	ds.Format(L"%d 쓰기 스레드 확인차\n", currentThreadId);
-	//OutputDebugString(ds);
+	DWORD dwCurrentThreadId = GetCurrentThreadId();
+	
+	CConnection* pConnection = GetConnection(dwIndex);
+	bool ret = pConnection->PushSend(pMsg, dwBytes);
 
-	CIocp* pIocp = GetConnection(uIndex);
-
-	DWORD sendbytes = 0;
+	/*DWORD dwBytes = 0;
 	IODATA* pioData = new IODATA;
 	ZeroMemory(&pioData->overlapped, sizeof(OVERLAPPED));
 	pioData->socket = pIocp->m_socket;
-	pioData->dataBuff.len = nBuffSize;
-	pioData->dataBuff.buf = pioData->buff;
-	memcpy(pioData->dataBuff.buf, lpBuff, nBuffSize);
+	pioData->WSABuff.len = nBuffSize;
+	pioData->WSABuff.buf = pioData->buff;
+	memcpy(pioData->WSABuff.buf, lpBuff, nBuffSize);
 	pioData->ioType = IOType::SEND;
-	pioData->uIndex = uIndex;
+	pioData->dwIndex = uIndex;
+
+	printf("nBuffSize = %d \n", nBuffSize);
 
 	if (WSASend(pIocp->m_socket,
-		&pioData->dataBuff,
+		&pioData->WSABuff,
 		1,
-		&sendbytes,
+		&dwBytes,
 		0,
 		(LPOVERLAPPED)pioData,
 		NULL) == SOCKET_ERROR)
@@ -1031,31 +1120,33 @@ bool CIocp::Send(UINT uIndex, void* lpBuff, int nBuffSize)
 			return false;
 		}
 	}
+	
+	printf("sendbytes = %d \n", dwBytes);*/
 
-	//std::cout << *(int*)(pioData->dataBuff.buf + 4) << "번 패킷 " << sendbytes << "byte send" << std::endl;
-	return true;
+	return ret;
 }
 
+/*
 void CIocp::SendToBuff(void* lpBuff, int nBuffSize)
 {
 	//Recv를 순서대로 받도록 동기화했기 때문에 Send에서 별도의 락 불필요.
-	PacketInfo pckInfo;
-	pckInfo.pConnection = this;
-	memcpy(pckInfo.Buff, lpBuff, nBuffSize);
+	PacketInfo PacketInfo;
+	PacketInfo.pConnection = this;
+	memcpy(PacketInfo.buff, lpBuff, nBuffSize);
 
-	m_pMainConnection->m_pSendBuff->push_back(pckInfo);
+	m_pSendQueue.push_back(PacketInfo);
 
 }
-
+*/
 
 void CIocp::StopThread()
 {
 	m_bWorkerThreadLive = false;
-	for (int i = 0; i < m_dwLockNum; i++)
+	for (DWORD i = 0; i < m_dwLockNum; i++)
 	{
 		if (PostQueuedCompletionStatus(m_CompletionPort, 0, (ULONG_PTR)0, 0) == 0)
 		{
-			std::cout << "PostQueuedCompletionStatus fail" << std::endl;
+			printf("PostQueuedCompletionStatus Fail \n");
 		};
 	}
 }
@@ -1065,39 +1156,43 @@ UINT CIocp::GetThreadLockNum()
 	DWORD currentThreadId = GetCurrentThreadId();
 
 	//스레드 아이디를 비교해서 스레드 순서에 따라 락 인덱스를 얻는다.
-	for (DWORD i = 0; i < m_pMainConnection->m_dwLockNum; i++)
+	for (DWORD i = 0; i < m_dwLockNum; i++)
 	{
-		if (m_pMainConnection->m_pThreadIdArr[i] == currentThreadId)
+		if (m_pThreadIdArr[i] == currentThreadId)
 		{
 			return i;
 		}
 	}
+
+	return -1;
 }
 
+/*
 UINT CIocp::GetWriteContainerSize()
 {
 	UINT Count = 0;
 
-	for (int i = 0; i < m_pWriteBuff->size(); i++)
+	for (int i = 0; i < m_pWriteQueue->size(); i++)
 	{
-		if ((*m_pWriteBuff)[i].pConnection != NULL)
+		if ((*m_pWriteQueue)[i].pConnection != NULL)
 			Count++;
 	}
 	return Count;
 }
-
+*/
+/*
 UINT CIocp::GetReadContainerSize()
 {
 	UINT Count = 0;
 
-	if (m_pReadBuff->size() == 0)
+	if (m_pReadQueue->size() == 0)
 		return Count;
 
-	for (int i = 0; i < m_pReadBuff->size(); i++)
+	for (int i = 0; i < m_pReadQueue->size(); i++)
 	{
-		if ((*m_pReadBuff)[i].pConnection != NULL)
+		if ((*m_pReadQueue)[i].pConnection != NULL)
 			Count++;
 	}
 	return Count;
 }
-
+*/
