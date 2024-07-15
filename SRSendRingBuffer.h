@@ -17,6 +17,7 @@ public:
 
 	char* GetReadPtr();
 	DWORD GetReservedBytes();
+	DWORD GetUsageBytes();
 
 	void Lock();
 	void UnLock();

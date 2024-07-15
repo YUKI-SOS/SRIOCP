@@ -24,6 +24,8 @@ public:
 	bool Send(char* pMsg, DWORD dwBytes); //네트워크 쪽에서 호출
 	bool PushSend(char* pMsg, DWORD dwBytes); //보내기 전까지 메세지 넣기
 	bool SendBuff(); //실제 WSASend가 호출되어 send 를 대기
+	bool PostSend(DWORD dwBytes);
+
 
 	bool CloseSocket();
 

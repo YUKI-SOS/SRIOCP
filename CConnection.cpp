@@ -116,22 +116,39 @@ void CConnection::CheckReset()
 
 bool CConnection::Send(char* pMsg, DWORD dwBytes)
 {
+	m_pSendBuff->Lock();
+	
+	int ret = 0;
+	
+	ret = PushSend(pMsg, dwBytes);
+	
+	if (ret) 
+	{
+	
+	}
+	
+	ret = SendBuff();
+	
+	if (ret) 
+	{
+	
+	}
+	
+	m_pSendBuff->UnLock();
+
 	return true;
 }
 
 bool CConnection::PushSend(char* pMsg, DWORD dwBytes)
 {
-
-	return true;
+	return m_pSendBuff->Push(pMsg, dwBytes);
 }
 
 bool CConnection::SendBuff()
 {
-	m_pSendBuff->Lock();
-	
 	DWORD dwBytes = 0;
-	ZeroMemory(&m_pSendOverlapped, sizeof(OVERLAPPED));
-	m_pSendOverlapped->wsabuff.len = m_pSendBuff->GetReservedBytes();
+	memset(m_pSendOverlapped, 0, sizeof(OVERLAPPED));
+	m_pSendOverlapped->wsabuff.len = m_pSendBuff->GetUsageBytes();
 	m_pSendOverlapped->wsabuff.buf = m_pSendBuff->GetReadPtr();
 	m_pSendOverlapped->eIoType = IOType::SEND;
 	m_pSendOverlapped->dwIndex = m_dwConnectionIndex;
@@ -153,9 +170,16 @@ bool CConnection::SendBuff()
 
 	printf("sendbytes = %d \n", dwBytes);
 
-	m_pSendBuff->UnLock();
-
 	return true;
+}
+
+bool CConnection::PostSend(DWORD dwBytes)
+{
+	m_pSendBuff->Lock();
+	bool ret = m_pSendBuff->PostSend(dwBytes);
+	m_pSendBuff->UnLock();
+	
+	return ret;
 }
 
 CIocp* CConnection::GetNetwork()

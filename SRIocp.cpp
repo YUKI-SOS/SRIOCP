@@ -535,10 +535,10 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 		//비동기 송신 이후 송신했다는 결과를 통지받을 뿐
 		else if (pOverlapped->eIoType == IOType::SEND)
 		{
+			pConnection->PostSend(dwTransferredBytes);
 			printf("completion %x\n", pOverlapped);
 			printf("transferredBytes %d\n", dwTransferredBytes);
 			//std::cout << *(int*)(pioData->Buff + 4) << "번 패킷 " << transferredBytes << "바이트 송신" << std::endl;
-
 		}
 
 	}
@@ -677,6 +677,7 @@ void CIocp::PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwM
 
 		PacketInfo* pPacketInfo = &(*m_pWriteQueue)[uQueuePos];
 		pPacketInfo->dwIndex = dwIndex;
+		pPacketInfo->dwLength = iBytes;
 		memcpy(pPacketInfo->buff, pMsg, iBytes);
 
 		pMsg += iBytes;
@@ -1016,7 +1017,7 @@ bool CIocp::Send(DWORD dwIndex, char* pMsg, DWORD dwBytes)
 	DWORD dwCurrentThreadId = GetCurrentThreadId();
 	
 	CConnection* pConnection = GetConnection(dwIndex);
-	bool ret = pConnection->PushSend(pMsg, dwBytes);
+	bool ret = pConnection->Send(pMsg, dwBytes);
 
 	/*DWORD dwBytes = 0;
 	IODATA* pioData = new IODATA;

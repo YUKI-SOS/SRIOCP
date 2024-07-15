@@ -44,9 +44,9 @@ bool SRSendRingBuffer::Initialize(DWORD dwSize)
 bool SRSendRingBuffer::Push(char* pMsg, DWORD dwLength)
 {
 	//링버퍼 전체 사이즈 보다 큰 메세지가 들어오려고 하는지 체크
-	if (m_dwBufferSize > dwLength) 
+	if (m_dwBufferSize < dwLength) 
 	{
-		
+		printf("%s:%d m_dwBufferSize = %d dwLength = %d \n", __FUNCTION__, __LINE__, m_dwBufferSize, dwLength);
 		return false;
 	}
 
@@ -66,7 +66,8 @@ bool SRSendRingBuffer::Push(char* pMsg, DWORD dwLength)
 	//순환 했음에도 길이가 부족하다면 실패 처리 
 	if (m_dwReserveBytes < dwLength) 
 	{
-		
+		printf("%s:%d m_dwReserveBytes = %d dwLength = %d \n", __FUNCTION__, __LINE__, m_dwReserveBytes, dwLength);
+		__debugbreak();
 		return false;
 	}
 
@@ -80,7 +81,7 @@ bool SRSendRingBuffer::Push(char* pMsg, DWORD dwLength)
 bool SRSendRingBuffer::PostSend(DWORD dwLength)
 {
 	m_pReadPos += dwLength;
-	m_dwUsageBytes += dwLength;
+	m_dwUsageBytes -= dwLength;
 
 	return true;
 }
@@ -93,6 +94,11 @@ char* SRSendRingBuffer::GetReadPtr()
 DWORD SRSendRingBuffer::GetReservedBytes()
 {
 	return m_dwReserveBytes;
+}
+
+DWORD SRSendRingBuffer::GetUsageBytes()
+{
+	return m_dwUsageBytes;
 }
 
 void SRSendRingBuffer::Lock()
