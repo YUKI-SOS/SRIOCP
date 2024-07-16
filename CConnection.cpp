@@ -121,7 +121,7 @@ bool CConnection::Send(char* pMsg, DWORD dwBytes)
 	int ret = 0;
 	
 	ret = PushSend(pMsg, dwBytes);
-	
+
 	if (ret) 
 	{
 	
@@ -129,6 +129,12 @@ bool CConnection::Send(char* pMsg, DWORD dwBytes)
 	
 	ret = SendBuff();
 	
+	if (dwBytes != m_pSendBuff->GetUsageBytes())
+	{
+		printf("Send dwbytes = %d usageBytes = %d \n", dwBytes, m_pSendBuff->GetUsageBytes());
+		__debugbreak();
+	}
+
 	if (ret) 
 	{
 	
@@ -163,12 +169,12 @@ bool CConnection::SendBuff()
 	{
 		if (WSAGetLastError() != ERROR_IO_PENDING)
 		{
-			std::cout << "WSASend fail" << std::endl;
+			printf("WSASend Fail. WSAGetLastError = %d \n", WSAGetLastError());
 			return false;
 		}
 	}
 
-	printf("sendbytes = %d \n", dwBytes);
+	printf("WSASend = %d \n", dwBytes);
 
 	return true;
 }

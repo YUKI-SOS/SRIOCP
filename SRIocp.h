@@ -88,7 +88,6 @@ public:
 	IODATA* m_pIoData; //오버랩 확장. 버퍼 및 리시브 센드 타입
 
 	std::vector<CConnection*> m_ConnectionList; //커넥션 리스트
-	UINT m_uConnectionIndex;
 
 	std::string m_szRemoteIP; //외부에서 연결시도한 커넥션의 ip
 	UINT m_uRemotePort; //외부에서 연결시도한 커넥션의 포트

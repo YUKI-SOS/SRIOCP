@@ -13,12 +13,19 @@ CIocp::CIocp()
 	m_ListenSocket = NULL;
 	m_CompletionPort = NULL;
 	m_bWorkerThreadLive = false;
-	m_dwWriteQueuePos = -1;
 
 	m_dwReadQueuePos = 0;
+	m_dwReadQueueSize = 0;
+	m_dwWriteQueuePos = -1;
+	m_dwWriteQueueSize = 0;
+	
 	m_dwSendQueuePos = 0;
-
+	
 	m_dwLockNum = 0;
+
+	lpfnAcceptEx = nullptr;
+	lpfnConnectEx = nullptr;
+	lpfnDisconnectEx = nullptr;
 }
 
 
@@ -118,7 +125,13 @@ bool CIocp::InitNetwork(ECSType csType, UINT port)
 
 	m_eCSType = csType;
 
-	//큐 리사이즈
+	//큐 준비
+	m_dwReadQueuePos = 0;
+	m_dwReadQueueSize = 0;
+
+	m_dwWriteQueuePos = -1;
+	m_dwWriteQueueSize = 0;
+
 	m_RecvQueue1.resize(RECV_QUEUE_MAX);
 	m_RecvQueue2.resize(RECV_QUEUE_MAX);
 
@@ -126,6 +139,7 @@ bool CIocp::InitNetwork(ECSType csType, UINT port)
 	m_pWriteQueue = &m_RecvQueue2;
 
 	m_pSendQueue.resize(SEND_QUEUE_MAX);
+	m_dwSendQueuePos = 0;
 
 	//이벤트 초기화(오토 리셋)
 	m_WriteQueueWaitEvent = CreateEvent(NULL, FALSE, FALSE, NULL); 
@@ -350,13 +364,12 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 		CConnection* pConnection = pIocp->GetConnection(pOverlapped->dwIndex);
 		SOCKET socket = pConnection->GetSocket();
 
-		printf("transferredBytes = %d\n", dwTransferredBytes);
-		printf("eIoType = %d \n", (int)pOverlapped->eIoType);
+		printf("GQCS CurrentThreadID = %d transferredBytes = %d eIoType = %d\n", dwCurrentThreadId, dwTransferredBytes, (int)pOverlapped->eIoType);
 
 		if (bRet == FALSE) 
 		{
 			printf("Socket = %d GetQueuedCompletionStatus Fail WSAGetLastError = %d \n", socket, WSAGetLastError());
-			arg->CloseConnection(pIocp->m_uConnectionIndex);
+			arg->CloseConnection(pOverlapped->dwIndex);
 			continue;
 		}	
 
@@ -367,12 +380,10 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 			&& pOverlapped->eIoType != IOType::CONNECT)
 		{
 			printf("dwTransferredBytes = 0 \n");
-			arg->CloseConnection(pIocp->m_uConnectionIndex);
-
+			arg->CloseConnection(pOverlapped->dwIndex);
 			continue;
 		}
 
-		printf("CurrentTreadId = %d IoType = %d \n", dwCurrentThreadId, pOverlapped->eIoType);
 
 		if (pOverlapped->eIoType == IOType::CONNECT)
 		{
@@ -587,31 +598,6 @@ void CIocp::PacketProcess()
 	
 }
 
-/*
-void CIocp::SendPacketProcess()
-{
-	while (1)
-	{
-		if (m_dwSendQueuePos >= m_pSendQueue.size())
-		{
-			m_pSendQueue.clear();
-			this->m_dwSendQueuePos = 0;
-			break;
-		}
-
-		PacketInfo sendPacket = m_pSendQueue[m_dwSendQueuePos];
-
-		if (sendPacket.pConnection == NULL)
-			continue;
-
-		CIocp* pIocp = sendPacket.pConnection;
-		int size = *(int*)sendPacket.buff;
-		pIocp->Send(pIocp->m_uConnectionIndex, sendPacket.buff, size);
-
-		this->m_dwSendQueuePos++;
-	}
-}
-*/
 void CIocp::SwapRecvQueue()
 {
 	//스왑 중에 라이트 큐에 넣지 못하도록 일괄 락.
@@ -1019,50 +1005,8 @@ bool CIocp::Send(DWORD dwIndex, char* pMsg, DWORD dwBytes)
 	CConnection* pConnection = GetConnection(dwIndex);
 	bool ret = pConnection->Send(pMsg, dwBytes);
 
-	/*DWORD dwBytes = 0;
-	IODATA* pioData = new IODATA;
-	ZeroMemory(&pioData->overlapped, sizeof(OVERLAPPED));
-	pioData->socket = pIocp->m_socket;
-	pioData->WSABuff.len = nBuffSize;
-	pioData->WSABuff.buf = pioData->buff;
-	memcpy(pioData->WSABuff.buf, lpBuff, nBuffSize);
-	pioData->ioType = IOType::SEND;
-	pioData->dwIndex = uIndex;
-
-	printf("nBuffSize = %d \n", nBuffSize);
-
-	if (WSASend(pIocp->m_socket,
-		&pioData->WSABuff,
-		1,
-		&dwBytes,
-		0,
-		(LPOVERLAPPED)pioData,
-		NULL) == SOCKET_ERROR)
-	{
-		if (WSAGetLastError() != ERROR_IO_PENDING)
-		{
-			std::cout << "WSASend fail" << std::endl;
-			return false;
-		}
-	}
-	
-	printf("sendbytes = %d \n", dwBytes);*/
-
 	return ret;
 }
-
-/*
-void CIocp::SendToBuff(void* lpBuff, int nBuffSize)
-{
-	//Recv를 순서대로 받도록 동기화했기 때문에 Send에서 별도의 락 불필요.
-	PacketInfo PacketInfo;
-	PacketInfo.pConnection = this;
-	memcpy(PacketInfo.buff, lpBuff, nBuffSize);
-
-	m_pSendQueue.push_back(PacketInfo);
-
-}
-*/
 
 void CIocp::StopThread()
 {
