@@ -376,9 +376,10 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 		//GetQueuedCompletionStatus 해서 가져오는데 성공했는데 전달받은 패킷이 0이면 접속이 끊긴 것으로 판단.
 		if (dwTransferredBytes == 0
 			&& pOverlapped->eIoType != IOType::ACCEPT
-			&& pOverlapped->eIoType != IOType::CONNECT)
+			&& pOverlapped->eIoType != IOType::CONNECT
+			&& pOverlapped->eIoType != IOType::DISCONNECT)
 		{
-			printf("dwTransferredBytes = 0 \n");
+			printf("GQCS TRUE dwTransferredBytes = 0 \n");
 			arg->CloseConnection(pOverlapped->dwIndex);
 			continue;
 		}
@@ -397,7 +398,6 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 			OnConnect(pOverlapped->dwIndex);
 
 			pConnection->PostRecv();
-			//arg->RecvSet(pConnection);
 			continue;
 		}
 		if (pOverlapped->eIoType == IOType::DISCONNECT)
@@ -689,7 +689,7 @@ bool CIocp::InitAcceptPool(DWORD dwNum)
 
 		ZeroMemory(&pOverlapped->overlapped, sizeof(OVERLAPPED));
 		
-		pOverlapped->wsabuff.len = ADDR_BUFF_SIZE;
+		pOverlapped->wsabuff.len = 0;
 		pOverlapped->wsabuff.buf = pConnection->GetAddrBuff();
 		pOverlapped->eIoType = IOType::ACCEPT;
 		dwFlags = 0;
@@ -810,7 +810,7 @@ bool CIocp::ReAcceptSocket(DWORD dwIndex)
 
 	ZeroMemory(&pOverlapped->overlapped, sizeof(OVERLAPPED));
 
-	pOverlapped->wsabuff.len = ADDR_BUFF_SIZE;
+	pOverlapped->wsabuff.len = 0;
 	pOverlapped->wsabuff.buf = pConnection->GetAddrBuff();
 	pOverlapped->eIoType = IOType::ACCEPT;
 
