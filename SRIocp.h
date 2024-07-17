@@ -64,7 +64,7 @@ public:
 	void SwapRecvQueue();
 	void PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex);
 
-	bool ReAcceptSocket(UINT uIndex);
+	bool ReAcceptSocket(DWORD dwIndex);
 	bool CloseConnection(DWORD dwIndex);
 
 	SOCKET Connect(char* pAddress, UINT port);
@@ -74,8 +74,6 @@ public:
 
 	CConnection* GetConnection(DWORD dwIndex);
 	CConnection* GetFreeConnection();
-
-	//bool GetPeerName(char* pAddress, WORD* pPort);
 
 	void StopThread();
 	UINT GetThreadLockNum();

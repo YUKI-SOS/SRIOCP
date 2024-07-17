@@ -364,7 +364,7 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 		CConnection* pConnection = pIocp->GetConnection(pOverlapped->dwIndex);
 		SOCKET socket = pConnection->GetSocket();
 
-		printf("GQCS CurrentThreadID = %d transferredBytes = %d eIoType = %d\n", dwCurrentThreadId, dwTransferredBytes, (int)pOverlapped->eIoType);
+		printf("GQCS CurrentThreadID = %d dwIndex = %d transferredBytes = %d eIoType = %d\n", dwCurrentThreadId, pOverlapped->dwIndex, dwTransferredBytes, (int)pOverlapped->eIoType);
 
 		if (bRet == FALSE) 
 		{
@@ -373,7 +373,6 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 			continue;
 		}	
 
-		
 		//GetQueuedCompletionStatus 해서 가져오는데 성공했는데 전달받은 패킷이 0이면 접속이 끊긴 것으로 판단.
 		if (dwTransferredBytes == 0
 			&& pOverlapped->eIoType != IOType::ACCEPT
@@ -440,11 +439,6 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 				(SOCKADDR**)&remoteAddr,
 				&remoteaddrlen);
 
-			//std::string sSocket = std::to_string(pIoData->socket);
-			//std::string sAddr = inet_ntoa(sockAddr->sin_addr);
-			//std::string sPort = std::to_string(ntohs(sockAddr->sin_port));
-			//std::string sRemoteAddr = inet_ntoa(remoteAddr->sin_addr);
-			//std::string sRemotePort = std::to_string(ntohs(remoteAddr->sin_port));
 			
 			char* szRemoteAddr = inet_ntoa(remoteAddr->sin_addr);
 			DWORD dwRemotePort = ntohs(remoteAddr->sin_port);
@@ -546,10 +540,8 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 		//비동기 송신 이후 송신했다는 결과를 통지받을 뿐
 		else if (pOverlapped->eIoType == IOType::SEND)
 		{
+			printf("Post Send transferredBytes %d\n", dwTransferredBytes);
 			pConnection->PostSend(dwTransferredBytes);
-			printf("completion %x\n", pOverlapped);
-			printf("transferredBytes %d\n", dwTransferredBytes);
-			//std::cout << *(int*)(pioData->Buff + 4) << "번 패킷 " << transferredBytes << "바이트 송신" << std::endl;
 		}
 
 	}
@@ -804,12 +796,12 @@ bool CIocp::InitConnectPool(UINT num)
 }
 */
 
-bool CIocp::ReAcceptSocket(UINT uIndex)
+bool CIocp::ReAcceptSocket(DWORD dwIndex)
 {
 	//DWORD flags;
 	DWORD dwBytes = 0;
 
-	CConnection* pConnection = GetConnection(uIndex);
+	CConnection* pConnection = GetConnection(dwIndex);
 	OverlappedEX* pOverlapped = pConnection->GetRecvOverlapped();
 	SOCKET socket = pConnection->GetSocket();
 
@@ -840,7 +832,7 @@ bool CIocp::ReAcceptSocket(UINT uIndex)
 		}
 	}
 
-	printf("uIndex = %d socket = %d ReAccept \n", uIndex, socket);
+	printf("dwIndex = %d socket = %d ReAccept \n", dwIndex, socket);
 	return true;
 }
 
@@ -981,22 +973,6 @@ CConnection* CIocp::GetFreeConnection()
 	
 	return nullptr;
 }
-
-/*
-bool CIocp::GetPeerName(char* pAddress, WORD* pPort)
-{
-	SOCKADDR_IN addr;
-	int addrlen = sizeof(SOCKADDR_IN);
-	getpeername(m_socket, (sockaddr*)&addr, &addrlen);
-
-	char* p = inet_ntoa(addr.sin_addr);
-
-	memcpy(pAddress, p, strlen(p));
-	*pPort = ntohs(addr.sin_port);
-
-	return true;
-}
-*/
 
 bool CIocp::Send(DWORD dwIndex, char* pMsg, DWORD dwBytes)
 {

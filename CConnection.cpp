@@ -17,6 +17,8 @@ CConnection::CConnection()
 
 	m_pRecvBuff = nullptr;
 	m_pSendBuff = nullptr;
+
+	m_dwSendWait = 0;
 }
 
 CConnection::~CConnection()
@@ -31,14 +33,16 @@ CConnection::~CConnection()
 	m_dwRemotePort = -1;
 
 	delete m_pRecvOverlapped;
-	delete m_pSendOverlapped;
 	m_pRecvOverlapped = nullptr;
+	delete m_pSendOverlapped;
 	m_pSendOverlapped = nullptr;
 
 	delete m_pRecvBuff;
-	delete m_pSendBuff;
 	m_pRecvBuff = nullptr;
+	delete m_pSendBuff;
 	m_pSendBuff = nullptr;
+
+	m_dwSendWait = 0;
 
 }
 
@@ -59,6 +63,8 @@ bool CConnection::Initialize(DWORD dwConnectionIndex, SOCKET socket, DWORD dwRec
 	m_pSendOverlapped = new OverlappedEX;
 	m_pSendOverlapped->dwIndex = dwConnectionIndex;
 
+	m_dwSendWait = 0;
+
 	return true;
 }
 
@@ -72,6 +78,20 @@ bool CConnection::CloseSocket()
 		closesocket(m_socket);
 		m_socket = INVALID_SOCKET;
 	}
+
+	return true;
+}
+
+bool CConnection::GetPeerName(char* pAddress, DWORD* pPort)
+{
+	SOCKADDR_IN addr;
+	int addrlen = sizeof(SOCKADDR_IN);
+	getpeername(m_socket, (sockaddr*)&addr, &addrlen);
+
+	char* p = inet_ntoa(addr.sin_addr);
+
+	memcpy(pAddress, p, strlen(p));
+	*pPort = ntohs(addr.sin_port);
 
 	return true;
 }
@@ -118,15 +138,23 @@ bool CConnection::Send(char* pMsg, DWORD dwBytes)
 {
 	m_pSendBuff->Lock();
 	
-	int ret = 0;
+	bool ret = false;
 	
 	ret = PushSend(pMsg, dwBytes);
 
-	if (ret) 
+	if (ret == false) 
 	{
-	
+		m_pSendBuff->UnLock();
+		return false;
 	}
 	
+	//send에 대한 통보가 오지 않아 send할 수 없는 상태면 보내지 않는다. 
+	if (m_dwSendWait == TRUE)
+	{
+		m_pSendBuff->UnLock();
+		return true;
+	}
+
 	ret = SendBuff();
 	
 	if (dwBytes != m_pSendBuff->GetUsageBytes())
@@ -135,11 +163,15 @@ bool CConnection::Send(char* pMsg, DWORD dwBytes)
 		__debugbreak();
 	}
 
-	if (ret) 
+	if (ret == false) 
 	{
-	
+		m_pSendBuff->UnLock();
+		return false;
 	}
 	
+	//send 했으면 통보가 오기 전 까지 커넥션이 send할 수 없도록 한다.
+	InterlockedExchange(&m_dwSendWait, TRUE);
+
 	m_pSendBuff->UnLock();
 
 	return true;
@@ -174,7 +206,7 @@ bool CConnection::SendBuff()
 		}
 	}
 
-	printf("WSASend = %d \n", dwBytes);
+	printf("SendBuff readptr = %p UsageBytes = %d  dwBytes = %d \n", m_pSendBuff->GetReadPtr(), m_pSendBuff->GetUsageBytes(), dwBytes);
 
 	return true;
 }
@@ -182,7 +214,19 @@ bool CConnection::SendBuff()
 bool CConnection::PostSend(DWORD dwBytes)
 {
 	m_pSendBuff->Lock();
+
+	InterlockedExchange(&m_dwSendWait, FALSE);
+
 	bool ret = m_pSendBuff->PostSend(dwBytes);
+
+	DWORD dwUsageBytes =  m_pSendBuff->GetUsageBytes();
+
+	if (dwUsageBytes > 0) 
+	{
+		SendBuff();
+		InterlockedExchange(&m_dwSendWait, TRUE);
+	}
+
 	m_pSendBuff->UnLock();
 	
 	return ret;
@@ -221,6 +265,16 @@ SRRecvRingBuffer* CConnection::GetRecvRingBuff()
 SRSendRingBuffer* CConnection::GetSendRingBuff()
 {
 	return m_pSendBuff;
+}
+
+void CConnection::LockSend()
+{
+	m_pSendBuff->Lock();
+}
+
+void CConnection::UnLockSend()
+{
+	m_pSendBuff->UnLock();
 }
 
 bool CConnection::GetConnectionStaus()

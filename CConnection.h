@@ -26,10 +26,7 @@ public:
 	bool SendBuff(); //실제 WSASend가 호출되어 send 를 대기
 	bool PostSend(DWORD dwBytes);
 
-
 	bool CloseSocket();
-
-	bool GetPeerName(char* pAddress, DWORD* pPort);
 
 public:
 	CIocp* GetNetwork();
@@ -39,6 +36,7 @@ public:
 	void SetConnectionStatus(bool status);
 
 	void SetRemoteIP(char* szIP, DWORD dwLength);
+	bool GetPeerName(char* pAddress, DWORD* pPort);
 
 	char* GetAddrBuff();
 
@@ -51,6 +49,9 @@ public:
 	SRRecvRingBuffer* GetRecvRingBuff();
 	SRSendRingBuffer* GetSendRingBuff();
 
+	void LockSend();
+	void UnLockSend();
+
 private:
 	CIocp* m_pNetwork;
 	DWORD m_dwConnectionIndex; //커넥션 번호
@@ -61,11 +62,12 @@ private:
 	char m_AddrBuf[ADDR_BUFF_SIZE] = { 0, };
 	DWORD m_dwRemotePort; 
 
-
 	OverlappedEX* m_pRecvOverlapped;
 	OverlappedEX* m_pSendOverlapped;
 
 	SRRecvRingBuffer* m_pRecvBuff;
 	SRSendRingBuffer* m_pSendBuff;
+
+	DWORD m_dwSendWait; //Send 통보 완료 되기 전까지 보내지 않도록 대기. 여러 스레드에서 send와 통보를 받을 수 있으니 인터락으로 관리.
 
 };

@@ -55,7 +55,7 @@ bool SRSendRingBuffer::Push(char* pMsg, DWORD dwLength)
 	{
 		//처리 못한 메세지가 남아있으면 
 		if (m_dwUsageBytes > 0)
-			memcpy(m_pBuffer, m_pReadPos, m_dwReserveBytes); //처리 안된 부분의 시작을 버퍼의 시작으로 카피한다.
+			memcpy(m_pBuffer, m_pReadPos, m_dwUsageBytes); //처리 안된 부분의 시작을 버퍼의 시작으로 카피한다.
 		
 		m_pReadPos = m_pBuffer; //리드의 위치를 버퍼의 시작으로 설정.
 		m_pWritePos = m_pBuffer + m_dwUsageBytes; //라이트의 위치를 버퍼의 시작 + 처리 안된 메세지 길이 이후로 설정.
@@ -71,18 +71,26 @@ bool SRSendRingBuffer::Push(char* pMsg, DWORD dwLength)
 		return false;
 	}
 
+	printf("Push Prev m_pWritePos = %p dwLength = %d \n", m_pWritePos, dwLength);
+
 	memcpy(m_pWritePos, pMsg, dwLength);
+	m_pWritePos += dwLength; //메세지 만큼 라이트 위치 증가
 	m_dwReserveBytes -= dwLength; //예약된 크기 메세지만큼 감소
 	m_dwUsageBytes += dwLength; //처리 안된 크기 메세지만큼 증가
 	
+	printf("Push After m_pWritePos = %p \n", m_pWritePos);
+
 	return true;
 }
 
 bool SRSendRingBuffer::PostSend(DWORD dwLength)
 {
+	printf("PostSend Prev m_pReadPos = %p dwLength = %d \n", m_pReadPos, dwLength);
+
 	m_pReadPos += dwLength;
 	m_dwUsageBytes -= dwLength;
 
+	printf("PostSend After m_pReadPos = %p \n", m_pReadPos);
 	return true;
 }
 
