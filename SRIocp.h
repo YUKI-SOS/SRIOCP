@@ -83,7 +83,6 @@ public:
 	UINT m_nBindPort; //accept용도의 bind할 포트
 	SOCKET m_ListenSocket; //리슨 소켓
 	HANDLE m_CompletionPort; //completionport 핸들
-	IODATA* m_pIoData; //오버랩 확장. 버퍼 및 리시브 센드 타입
 
 	std::vector<CConnection*> m_ConnectionList; //커넥션 리스트
 
@@ -112,7 +111,7 @@ public:
 	DWORD m_dwWriteQueuePos; //인터락으로 관리할 라이트 큐 현재 위치
 	DWORD m_dwWriteQueueSize; //라이트 큐 요소 개수
 
-	HANDLE m_WriteQueueWaitEvent; //라이트 큐가 넘치면 스왑할 때 까지 대기하기 위한 이벤트
+	HANDLE m_QueueSwapWaitEvent; //라이트 큐가 넘치면 스왑할 때 까지 대기하기 위한 이벤트
 
 	std::vector<PacketInfo> m_pSendQueue;
 	DWORD m_dwSendQueuePos;

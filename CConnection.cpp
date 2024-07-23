@@ -96,6 +96,47 @@ bool CConnection::GetPeerName(char* pAddress, DWORD* pPort)
 	return true;
 }
 
+void CConnection::PostAccept()
+{
+	//https://learn.microsoft.com/ko-kr/windows/win32/api/mswsock/nf-mswsock-acceptex
+	//Windows XP 이상에서는 AcceptEx 함수가 완료되고 허용된 소켓에 SO_UPDATE_ACCEPT_CONTEXT 옵션이 설정되면
+	//getsockname 함수를 사용하여 수락된 소켓과 연결된 로컬 주소를 검색할 수도 있습니다.
+	//마찬가지로 허용된 소켓과 연결된 원격 주소는 getpeername 함수를 사용하여 검색할 수 있습니다.
+	/*if (setsockopt(m_socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char*)&(m_pNetwork->m_ListenSocket), sizeof(SOCKET)) == SOCKET_ERROR)
+	{
+		printf("AcceptEX SocketOption Fail WSAGetLastError = %d\n", WSAGetLastError());
+	};*/
+
+	SOCKADDR_IN* sockAddr = NULL;
+	int addrlen = sizeof(SOCKADDR);
+	SOCKADDR_IN* remoteAddr = NULL;
+	int remoteaddrlen = sizeof(SOCKADDR_IN);
+	GetAcceptExSockaddrs(m_AddrBuf, //커넥션의 m_AddrBuf. AcceptEx의 lpOutputBuffer와 동일한 매개 변수
+		0,
+		sizeof(SOCKADDR_IN) + 16,
+		sizeof(SOCKADDR_IN) + 16,
+		(SOCKADDR**)&sockAddr,
+		&addrlen,
+		(SOCKADDR**)&remoteAddr,
+		&remoteaddrlen);
+
+	char* szRemoteAddr = inet_ntoa(remoteAddr->sin_addr);
+	DWORD dwRemotePort = ntohs(remoteAddr->sin_port);
+
+	static int iAcceptCnt = 0;
+	iAcceptCnt++;
+	printf("Accept Cnt = %d\n", iAcceptCnt);
+	printf("Accept Socket = %d ip = %s port = %d \n", socket, inet_ntoa(remoteAddr->sin_addr), ntohs(remoteAddr->sin_port));
+
+	CIocp::OnAccept(m_dwConnectionIndex);
+
+	SetConnectionStatus(true);
+	SetRemoteIP(szRemoteAddr, ADDR_BUFF_SIZE);
+	SetRemotePort(dwRemotePort);
+
+	PostRecv();
+}
+
 bool CConnection::PostRecv()
 {
 	DWORD dwFlags = 0;
@@ -232,6 +273,16 @@ bool CConnection::PostSend(DWORD dwBytes)
 	return ret;
 }
 
+void CConnection::LockSend()
+{
+	m_pSendBuff->Lock();
+}
+
+void CConnection::UnLockSend()
+{
+	m_pSendBuff->UnLock();
+}
+
 CIocp* CConnection::GetNetwork()
 {
 	return m_pNetwork;
@@ -267,15 +318,52 @@ SRSendRingBuffer* CConnection::GetSendRingBuff()
 	return m_pSendBuff;
 }
 
-void CConnection::LockSend()
+DWORD CConnection::GetAcceptRefCount()
 {
-	m_pSendBuff->Lock();
+	return m_dwAcceptRefCount;
 }
 
-void CConnection::UnLockSend()
+DWORD CConnection::GetRecvRefCount()
 {
-	m_pSendBuff->UnLock();
+	return m_dwRecvRefCount;
 }
+
+DWORD CConnection::GetSendRefCount()
+{
+	return m_dwSendRefCount;
+}
+
+void CConnection::AcceptRefIncrease()
+{
+	InterlockedIncrement(&m_dwAcceptRefCount);
+}
+
+void CConnection::AcceptRefDecrease()
+{
+	InterlockedDecrement(&m_dwAcceptRefCount);
+}
+
+void CConnection::RecvRefIncrease()
+{
+	InterlockedIncrement(&m_dwRecvRefCount);
+}
+
+void CConnection::RecvRefDecrease()
+{
+	InterlockedDecrement(&m_dwRecvRefCount);
+}
+
+void CConnection::SendRefIncrease()
+{
+	InterlockedIncrement(&m_dwSendRefCount);
+}
+
+void CConnection::SendRefDecrease()
+{
+	InterlockedDecrement(&m_dwSendRefCount);
+}
+
+
 
 bool CConnection::GetConnectionStaus()
 {

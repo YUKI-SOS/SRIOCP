@@ -39,17 +39,6 @@ enum class IOType
 	SEND
 };
 
-//¿À¹ö·¦ È®Àå
-typedef struct
-{
-	OVERLAPPED overlapped;
-	WSABUF WSABuff;
-	//CHAR buff[PACKET_BUFF_MAX];
-	//SOCKET socket;
-	DWORD dwIndex;
-	IOType ioType;
-}IODATA;
-
 typedef struct
 {
 	OVERLAPPED overlapped;
@@ -58,13 +47,13 @@ typedef struct
 	IOType eIoType;
 }OverlappedEX;
 
-typedef struct _PacketInfo
+typedef struct sPacketInfo
 {
 	DWORD dwIndex;
 	DWORD dwLength;
 	char buff[RECV_PACKET_MAX];
 
-	_PacketInfo()
+	sPacketInfo()
 	{
 		dwIndex = -1;
 		dwLength = 0;

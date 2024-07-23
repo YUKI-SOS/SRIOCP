@@ -142,7 +142,7 @@ bool CIocp::InitNetwork(ECSType csType, UINT port)
 	m_dwSendQueuePos = 0;
 
 	//이벤트 초기화(오토 리셋)
-	m_WriteQueueWaitEvent = CreateEvent(NULL, FALSE, FALSE, NULL); 
+	m_QueueSwapWaitEvent = CreateEvent(NULL, FALSE, FALSE, NULL); 
 
 	//윈속 초기화
 	if ((retVal = WSAStartup(MAKEWORD(2, 2), &wsaData)) != 0)
@@ -404,7 +404,6 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 		{
 			//서버는 ReAccecptEx하면서 클라이언트는 소켓을 다시 할당하면서 InitConnectPool에서 isConnected를 false처리하기 때문에 여기서 하지 않는다.
 			//클라는 isConnected인 소켓이 없으면 다시 소켓을 커넥션 수 만큼 만들기 때문에 판단하기 위해서 false로 만들지 않는다.
-			//piocp->isConnected = false;
 			printf("IOType is Disconnect. Socket = %d \n", socket);
 			OnClose(pOverlapped->dwIndex);
 
@@ -414,129 +413,20 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 			continue;
 		}
 
-		//recv send 구분
 		//비동기 입출력에서 오버랩구조체를 인자로 전달할 때 오버랩구조체를 멤버로 가진 구조체를 오버랩으로 캐스팅해서 보내고
 		//GetQueuedCompletionStatus에서 받은 오버랩 구조체를 다시 원래 구조체로 캐스팅하면 다른 멤버도 받아올 수 있다.
 		//그런 방법으로 IOType Enum을 끼어넣어서 받아와서 구분짓는다.
-		//GetQueuedCompletionStatus 에 들어오는 key 값에다가 객체 주소를 넘겨받아서 가져온다. 
 		if (pOverlapped->eIoType == IOType::ACCEPT)
 		{
-			if (setsockopt(socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char*)&(arg->m_ListenSocket), sizeof(SOCKET)) == SOCKET_ERROR)
-			{
-				printf("AcceptEX SocketOption Fail WSAGetLastError = %d\n", WSAGetLastError());
-			};
-
-			SOCKADDR_IN* sockAddr = NULL;
-			int addrlen = sizeof(SOCKADDR);
-			SOCKADDR_IN* remoteAddr = NULL;
-			int remoteaddrlen = sizeof(SOCKADDR_IN);
-			GetAcceptExSockaddrs(pOverlapped->wsabuff.buf, //커넥션의 m_AddrBuf
-				0,
-				sizeof(SOCKADDR_IN) + 16,
-				sizeof(SOCKADDR_IN) + 16,
-				(SOCKADDR**)&sockAddr,
-				&addrlen,
-				(SOCKADDR**)&remoteAddr,
-				&remoteaddrlen);
-
-			
-			char* szRemoteAddr = inet_ntoa(remoteAddr->sin_addr);
-			DWORD dwRemotePort = ntohs(remoteAddr->sin_port);
-
-			static int iAcceptCnt = 0;
-			iAcceptCnt++;
-			printf("Accept Cnt = %d\n", iAcceptCnt);
-			printf("Accept Socket = %d ip = %s port = %d \n", socket, inet_ntoa(remoteAddr->sin_addr), ntohs(remoteAddr->sin_port));
-
-			CIocp::OnAccept(pOverlapped->dwIndex);
-
-			pConnection->SetConnectionStatus(true);
-			pConnection->SetRemoteIP(szRemoteAddr, ADDR_BUFF_SIZE);
-			pConnection->SetRemotePort(dwRemotePort);
-			//arg->RecvSet(pConnection);
-			pConnection->PostRecv();
-
-			continue;
+			pConnection->PostAccept();
 		}
 		else if (pOverlapped->eIoType == IOType::RECV)
 		{			
-
 			pConnection->RecvProcess(dwTransferredBytes, &pMsg, &dwMsgBytes, &dwMsgNum);
-			pConnection->CheckReset();
-
-			//라이트 큐에 삽입
-			pIocp->PushWriteQueue(pOverlapped->dwIndex, pMsg, dwMsgNum, dwMsgBytes, dwLockIndex);
-			//Recv 오버랩 재설정
-			pConnection->PostRecv();
+			pConnection->CheckReset();			
+			pIocp->PushWriteQueue(pOverlapped->dwIndex, pMsg, dwMsgNum, dwMsgBytes, dwLockIndex); //라이트 큐에 삽입			
+			pConnection->PostRecv(); //RECV IO 다시 걸기
 		}
-
-		/*
-		else if (pIoData->ioType == IOType::RECV)
-		{
-			//std::cout << *(int*)(pioData->Buff + 4) << "번 패킷 " << transferredBytes << "바이트 수신" << std::endl;
-
-			pIocp->m_uIoPos = dwTransferredBytes;
-
-			PacketInfo packetInfo;
-			packetInfo.pConnection = pIocp;
-			while (1)
-			{
-				//임시 버퍼에 남은 패킷이 있으면 iobuffer에 있는 것이 패킷의 시작부분이 아니라고 봄.
-				if (pIocp->m_uTempBuffPos > 0)
-				{
-					//임시 버퍼에서 4바이트 읽은 크기가 임시 버퍼와 io버퍼의 크기보다 크면 쪼개져서 덜 받은 패킷으로 판단.
-					if (*(int*)pIocp->m_pTempBuff > pIocp->m_uTempBuffPos + pIocp->m_uIoPos)
-					{
-						memcpy(pIocp->m_pTempBuff + pIocp->m_uTempBuffPos, pIoData->buff, pIocp->m_uIoPos);
-						pIocp->m_uTempBuffPos += pIocp->m_uIoPos;
-						pIocp->m_uIoPos = 0;
-						goto MAKEPACKETEND;
-					}
-					//짤려서 뒤에 들어온 패킷부분을 임시 버퍼에 이어준다.
-					memcpy(pIocp->m_pTempBuff + pIocp->m_uTempBuffPos, pIoData->buff, *(int*)pIocp->m_pTempBuff - pIocp->m_uTempBuffPos);
-					//패킷을 만들어서 라이트버퍼에 넣어준다.
-					memcpy(packetInfo.buff, pIocp->m_pTempBuff, *(int*)pIocp->m_pTempBuff);
-					arg->PushWriteBuffer(&packetInfo, dwLockIndex);
-					//io버퍼에서 임시 버퍼로 넘겨준 만큼 땡겨준다.
-					memmove(pIoData->buff, pIoData->buff + *(int*)pIocp->m_pTempBuff - pIocp->m_uTempBuffPos, sizeof(pIoData->buff) - (*(int*)pIocp->m_pTempBuff - pIocp->m_uTempBuffPos));
-					pIocp->m_uIoPos -= *(int*)pIocp->m_pTempBuff - pIocp->m_uTempBuffPos;
-					//임시 버퍼를 비워준다.
-					ZeroMemory(pIocp->m_pTempBuff, _msize(pIocp->m_pTempBuff));
-					pIocp->m_uTempBuffPos = 0;
-				}
-
-				//패킷의 사이즈가 io버퍼 위치보다 크면 뒤에 더 받을 패킷이 있다고 보고 임시 버퍼에 불완전한 패킷 저장.
-				if (pIocp->m_uIoPos < *(int*)pIoData->buff)
-				{
-					//임시 버퍼에 불완전 패킷 저장.
-					memcpy(pIocp->m_pTempBuff + pIocp->m_uTempBuffPos, pIoData->buff, pIocp->m_uIoPos);
-					pIocp->m_uTempBuffPos += pIocp->m_uIoPos;
-					//불완전한 패킷 보내고 나머지를 땡긴다.
-					memmove(pIoData->buff, pIoData->buff + pIocp->m_uIoPos, sizeof(pIoData->buff) - pIocp->m_uIoPos);
-					//땡긴 나머지 부분을 0으로 채워준다.
-					ZeroMemory(pIoData->buff + (sizeof(pIoData->buff) - pIocp->m_uIoPos), pIocp->m_uIoPos);
-					pIocp->m_uIoPos = 0;
-					goto MAKEPACKETEND;
-				}
-
-				//패킷이 시작부분이라고 보고.
-				int packetSize = *(int*)pIoData->buff;
-
-				if (packetSize == 0)
-					goto MAKEPACKETEND;
-
-				//패킷을 만들어서 라이트 버퍼에 저장. 
-				memcpy(packetInfo.buff, pIoData->buff, packetSize);
-				arg->PushWriteBuffer(&packetInfo, dwLockIndex);
-				pIocp->m_uIoPos -= packetSize;
-				memmove(pIoData->buff, pIoData->buff + packetSize, sizeof(pIoData->buff) - packetSize);
-				ZeroMemory(pIoData->buff + (sizeof(pIoData->buff) - packetSize), packetSize);
-			}
-
-		MAKEPACKETEND:
-			arg->RecvSet(pIocp);
-		}
-		*/
 		//비동기 송신 이후 송신했다는 결과를 통지받을 뿐
 		else if (pOverlapped->eIoType == IOType::SEND)
 		{
@@ -561,10 +451,11 @@ void CIocp::PacketProcess()
 	if (m_dwReadQueuePos >= m_dwReadQueueSize)
 		goto SWAPCHECK;
 
+	printf("Read Queue Count = %d\n", m_dwReadQueueSize);
+
 	for (DWORD i = 0; i < m_dwReadQueueSize; i++) 
 	{	
-		printf("Read Queue Count = %d\n", m_dwReadQueueSize);
-
+		printf("PacketProcess i = %d m_dwReadQueuePos = %d\n", i, m_dwReadQueuePos);
 		PacketInfo* pPacketInfo = &(*m_pReadQueue)[m_dwReadQueuePos];
 		DWORD dwIndex = pPacketInfo->dwIndex;
 		CConnection* pConnection = GetConnection(dwIndex);
@@ -621,7 +512,7 @@ void CIocp::SwapRecvQueue()
 		ReleaseSRWLockExclusive(m_pBufferSwapLock + i);
 	}
 
-	SetEvent(m_WriteQueueWaitEvent);
+	SetEvent(m_QueueSwapWaitEvent);
 }
 
 void CIocp::PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex)
@@ -648,7 +539,11 @@ void CIocp::PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwM
 		if (uQueuePos >= RECV_QUEUE_MAX) 
 		{
 			printf("RecvQueue OVER. Wait Swap \n");
-			WaitForSingleObject(m_WriteQueueWaitEvent, INFINITE);
+			//락이 걸려 있어 메인 스레드에서 스왑이 못일어나니까 일단 해제 후 대기
+			ReleaseSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
+			WaitForSingleObject(m_QueueSwapWaitEvent, INFINITE);
+			//스왑 후 다시 락 획득. 획득 전에 다시 스왑 체크가 먼저 일어나도 라이트 큐 사이즈가 0으로 한 번 스왑돼서 더이상 스왑되지 않을 것.
+			AcquireSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
 			//스왑 후 큐 위치를 다시 구한다.
 			uQueuePos = InterlockedIncrement(&m_dwWriteQueuePos);
 		}
