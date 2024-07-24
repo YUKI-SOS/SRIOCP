@@ -141,8 +141,8 @@ bool CIocp::InitNetwork(ECSType csType, UINT port)
 	m_pSendQueue.resize(SEND_QUEUE_MAX);
 	m_dwSendQueuePos = 0;
 
-	//이벤트 초기화(오토 리셋)
-	m_QueueSwapWaitEvent = CreateEvent(NULL, FALSE, FALSE, NULL); 
+	//이벤트 초기화(수동 리셋)
+	m_QueueSwapWaitEvent = CreateEvent(NULL, TRUE, FALSE, NULL); 
 
 	//윈속 초기화
 	if ((retVal = WSAStartup(MAKEWORD(2, 2), &wsaData)) != 0)
@@ -430,7 +430,9 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 		//비동기 송신 이후 송신했다는 결과를 통지받을 뿐
 		else if (pOverlapped->eIoType == IOType::SEND)
 		{
+#ifdef __DEV_LOG__
 			printf("Post Send transferredBytes %d\n", dwTransferredBytes);
+#endif
 			pConnection->PostSend(dwTransferredBytes);
 		}
 
@@ -451,11 +453,15 @@ void CIocp::PacketProcess()
 	if (m_dwReadQueuePos >= m_dwReadQueueSize)
 		goto SWAPCHECK;
 
+#ifdef __DEV_LOG__
 	printf("Read Queue Count = %d\n", m_dwReadQueueSize);
+#endif
 
 	for (DWORD i = 0; i < m_dwReadQueueSize; i++) 
 	{	
+#ifdef __DEV_LOG__
 		printf("PacketProcess i = %d m_dwReadQueuePos = %d\n", i, m_dwReadQueuePos);
+#endif
 		PacketInfo* pPacketInfo = &(*m_pReadQueue)[m_dwReadQueuePos];
 		DWORD dwIndex = pPacketInfo->dwIndex;
 		CConnection* pConnection = GetConnection(dwIndex);
@@ -489,7 +495,12 @@ void CIocp::SwapRecvQueue()
 		AcquireSRWLockExclusive(m_pBufferSwapLock + i);
 	}
 
+	printf("Reset Event\n");
+	ResetEvent(m_QueueSwapWaitEvent);
+
+#ifdef __DEV_LOG__
 	printf("Prev ReadQueueSize = %d WriteQueueSize = %d \n", m_dwReadQueueSize, m_dwWriteQueueSize);
+#endif
 
 	//리드 큐 다 읽었을 때 스왑이 일어날 때 노드 마다 가지고 있는 버퍼를 비워줄 것인가? 
 	//m_pReadQueue->clear();
@@ -505,14 +516,18 @@ void CIocp::SwapRecvQueue()
 	InterlockedExchange(&m_dwWriteQueuePos, -1); //락으로 쌓여있는 상태니까 여긴 인터락 아니어도 될 거 같긴 한데.
 	InterlockedExchange(&m_dwWriteQueueSize, 0);
 
+#ifdef __DEV_LOG__
 	printf("After ReadQueueSize = %d WriteQueueSize = %d \n", m_dwReadQueueSize, m_dwWriteQueueSize);
+#endif
+
+	printf("Set Event\n");
+	SetEvent(m_QueueSwapWaitEvent);
 
 	for (DWORD i = 0; i < m_dwLockNum; i++)
 	{
 		ReleaseSRWLockExclusive(m_pBufferSwapLock + i);
 	}
 
-	SetEvent(m_QueueSwapWaitEvent);
 }
 
 void CIocp::PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex)
@@ -541,6 +556,7 @@ void CIocp::PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwM
 			printf("RecvQueue OVER. Wait Swap \n");
 			//락이 걸려 있어 메인 스레드에서 스왑이 못일어나니까 일단 해제 후 대기
 			ReleaseSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
+			//스왑이 일어나기 까지 대기
 			WaitForSingleObject(m_QueueSwapWaitEvent, INFINITE);
 			//스왑 후 다시 락 획득. 획득 전에 다시 스왑 체크가 먼저 일어나도 라이트 큐 사이즈가 0으로 한 번 스왑돼서 더이상 스왑되지 않을 것.
 			AcquireSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);

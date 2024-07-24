@@ -14,8 +14,13 @@ public:
 public:
 	bool Initialize(DWORD dwConnectionIndex, SOCKET socket, DWORD dwRecvRingBuffSize, DWORD dwSendRingBuffSize);
 	
+	int SetAcceptContextOpt(); //getpeername 및 getsockname 정상 작동하기 위해서 필요
+	int SetConnectContextOpt();
+
 	void PostAccept();
+	void PostConnect();
 	bool PostRecv();
+
 
 	//recv 오버랩 함수
 	void RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum);

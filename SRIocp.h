@@ -38,8 +38,7 @@ public:
 	void SetReuseSocketOpt(SOCKET socket);
 	void SetLingerOpt(SOCKET socket);
 	void SetNagleOffOpt(SOCKET socket);
-	int SetAcceptContextOpt(SOCKET socket); //getpeername 및 getsockname 정상 작동하기 위해서 필요
-	int SetConnectContextOpt(SOCKET socket);
+	
 
 	bool InitAcceptPool(DWORD dwNum);
 	//bool InitConnectPool(UINT num);

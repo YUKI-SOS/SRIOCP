@@ -68,6 +68,30 @@ bool CConnection::Initialize(DWORD dwConnectionIndex, SOCKET socket, DWORD dwRec
 	return true;
 }
 
+int CConnection::SetAcceptContextOpt()
+{
+	int iRet = setsockopt(m_socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char*)&(m_pNetwork->m_ListenSocket), sizeof(SOCKET));
+	
+	if(iRet == SOCKET_ERROR)
+	{
+		printf("AcceptEX SocketOption Fail WSAGetLastError = %d\n", WSAGetLastError());
+	};
+
+	return iRet;
+}
+
+int CConnection::SetConnectContextOpt()
+{
+	int iRet = setsockopt(m_socket, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0);
+
+	if (iRet == SOCKET_ERROR)
+	{
+		printf("ConnectEX SocketOption Fail WSAGetLastError = %d\n", WSAGetLastError());
+	};
+
+	return iRet;
+}
+
 bool CConnection::CloseSocket()
 {
 	//진짜로 소켓을 초기화 하는 처리.
@@ -102,10 +126,9 @@ void CConnection::PostAccept()
 	//Windows XP 이상에서는 AcceptEx 함수가 완료되고 허용된 소켓에 SO_UPDATE_ACCEPT_CONTEXT 옵션이 설정되면
 	//getsockname 함수를 사용하여 수락된 소켓과 연결된 로컬 주소를 검색할 수도 있습니다.
 	//마찬가지로 허용된 소켓과 연결된 원격 주소는 getpeername 함수를 사용하여 검색할 수 있습니다.
-	/*if (setsockopt(m_socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char*)&(m_pNetwork->m_ListenSocket), sizeof(SOCKET)) == SOCKET_ERROR)
-	{
-		printf("AcceptEX SocketOption Fail WSAGetLastError = %d\n", WSAGetLastError());
-	};*/
+	/*
+	SetAcceptContextOpt();
+	*/
 
 	SOCKADDR_IN* sockAddr = NULL;
 	int addrlen = sizeof(SOCKADDR);
@@ -126,13 +149,25 @@ void CConnection::PostAccept()
 	static int iAcceptCnt = 0;
 	iAcceptCnt++;
 	printf("Accept Cnt = %d\n", iAcceptCnt);
-	printf("Accept Socket = %d ip = %s port = %d \n", socket, inet_ntoa(remoteAddr->sin_addr), ntohs(remoteAddr->sin_port));
+	printf("Accept Socket = %d ip = %s port = %d \n", m_socket, inet_ntoa(remoteAddr->sin_addr), ntohs(remoteAddr->sin_port));
 
 	CIocp::OnAccept(m_dwConnectionIndex);
 
 	SetConnectionStatus(true);
 	SetRemoteIP(szRemoteAddr, ADDR_BUFF_SIZE);
 	SetRemotePort(dwRemotePort);
+
+	PostRecv();
+}
+
+void CConnection::PostConnect()
+{
+	SetConnectContextOpt();
+
+	printf("m_socket = %d Connected \n", m_socket);
+
+	SetConnectionStatus(true);
+	CIocp::OnConnect(m_dwConnectionIndex);
 
 	PostRecv();
 }
@@ -247,7 +282,9 @@ bool CConnection::SendBuff()
 		}
 	}
 
+#ifdef __DEV_LOG__
 	printf("SendBuff readptr = %p UsageBytes = %d  dwBytes = %d \n", m_pSendBuff->GetReadPtr(), m_pSendBuff->GetUsageBytes(), dwBytes);
+#endif
 
 	return true;
 }

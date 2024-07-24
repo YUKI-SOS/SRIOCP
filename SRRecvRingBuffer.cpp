@@ -1,3 +1,4 @@
+#include "NetworkDefine.h"
 #include "SRRecvRingBuffer.h"
 #include <stdio.h>
 
@@ -57,14 +58,21 @@ void SRRecvRingBuffer::RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMs
 	{
 		//최소한의 패킷도 될 수 없는 데이터만 남으면 탈출. 
 		if (m_dwUsageBytes < 4)
-			return;
+			break;
 
 		//사이즈를 얻는다.
 		dwPaketLength = *(DWORD*)m_pReadPos;
 
+		//사이즈 이상 체크.
+		if (dwPaketLength < 0 || dwPaketLength >= RECV_PACKET_MAX) 
+		{
+			printf("PaketLength Error. \n");
+			break;
+		}
+
 		//패킷이 안되고 남아있는 용량이 패킷 길이보다 작으면 패킷 못만드는 상태임으로 탈출
 		if (m_dwUsageBytes < dwPaketLength)
-			return;
+			break;
 
 		//읽은 패킷 사이즈 만큼 리드 증가
 		m_pReadPos += dwPaketLength;
