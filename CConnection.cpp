@@ -106,73 +106,7 @@ bool CConnection::CloseSocket()
 	return true;
 }
 
-bool CConnection::GetPeerName(char* pAddress, DWORD* pPort)
-{
-	SOCKADDR_IN addr;
-	int addrlen = sizeof(SOCKADDR_IN);
-	getpeername(m_socket, (sockaddr*)&addr, &addrlen);
-
-	char* p = inet_ntoa(addr.sin_addr);
-
-	memcpy(pAddress, p, strlen(p));
-	*pPort = ntohs(addr.sin_port);
-
-	return true;
-}
-
-void CConnection::PostAccept()
-{
-	//https://learn.microsoft.com/ko-kr/windows/win32/api/mswsock/nf-mswsock-acceptex
-	//Windows XP 이상에서는 AcceptEx 함수가 완료되고 허용된 소켓에 SO_UPDATE_ACCEPT_CONTEXT 옵션이 설정되면
-	//getsockname 함수를 사용하여 수락된 소켓과 연결된 로컬 주소를 검색할 수도 있습니다.
-	//마찬가지로 허용된 소켓과 연결된 원격 주소는 getpeername 함수를 사용하여 검색할 수 있습니다.
-	/*
-	SetAcceptContextOpt();
-	*/
-
-	SOCKADDR_IN* sockAddr = NULL;
-	int addrlen = sizeof(SOCKADDR);
-	SOCKADDR_IN* remoteAddr = NULL;
-	int remoteaddrlen = sizeof(SOCKADDR_IN);
-	GetAcceptExSockaddrs(m_AddrBuf, //커넥션의 m_AddrBuf. AcceptEx의 lpOutputBuffer와 동일한 매개 변수
-		0,
-		sizeof(SOCKADDR_IN) + 16,
-		sizeof(SOCKADDR_IN) + 16,
-		(SOCKADDR**)&sockAddr,
-		&addrlen,
-		(SOCKADDR**)&remoteAddr,
-		&remoteaddrlen);
-
-	char* szRemoteAddr = inet_ntoa(remoteAddr->sin_addr);
-	DWORD dwRemotePort = ntohs(remoteAddr->sin_port);
-
-	static int iAcceptCnt = 0;
-	iAcceptCnt++;
-	printf("Accept Cnt = %d\n", iAcceptCnt);
-	printf("Accept Socket = %d ip = %s port = %d \n", m_socket, inet_ntoa(remoteAddr->sin_addr), ntohs(remoteAddr->sin_port));
-
-	CIocp::OnAccept(m_dwConnectionIndex);
-
-	SetConnectionStatus(true);
-	SetRemoteIP(szRemoteAddr, ADDR_BUFF_SIZE);
-	SetRemotePort(dwRemotePort);
-
-	PostRecv();
-}
-
-void CConnection::PostConnect()
-{
-	SetConnectContextOpt();
-
-	printf("m_socket = %d Connected \n", m_socket);
-
-	SetConnectionStatus(true);
-	CIocp::OnConnect(m_dwConnectionIndex);
-
-	PostRecv();
-}
-
-bool CConnection::PostRecv()
+bool CConnection::PrepareRecv()
 {
 	DWORD dwFlags = 0;
 	DWORD dwBytes = 0;
@@ -181,6 +115,8 @@ bool CConnection::PostRecv()
 	m_pRecvOverlapped->wsabuff.buf = m_pRecvBuff->GetReadPtr();
 	m_pRecvOverlapped->eIoType = IOType::RECV;
 	m_pRecvOverlapped->dwIndex = m_dwConnectionIndex;
+
+	IncreaseRecvRef();
 
 	if (WSARecv(m_socket,
 		&m_pRecvOverlapped->wsabuff,
@@ -193,6 +129,7 @@ bool CConnection::PostRecv()
 		if (WSAGetLastError() != ERROR_IO_PENDING)
 		{
 			printf("WSARecv Fail. WSAGetLastError = %d \n", WSAGetLastError());
+			DecreaseRecvRef();
 			return false;
 		}
 	}
@@ -267,6 +204,8 @@ bool CConnection::SendBuff()
 	m_pSendOverlapped->eIoType = IOType::SEND;
 	m_pSendOverlapped->dwIndex = m_dwConnectionIndex;
 
+	IncreaseSendRef();
+
 	if (WSASend(m_socket,
 		&m_pSendOverlapped->wsabuff,
 		1,
@@ -278,6 +217,7 @@ bool CConnection::SendBuff()
 		if (WSAGetLastError() != ERROR_IO_PENDING)
 		{
 			printf("WSASend Fail. WSAGetLastError = %d \n", WSAGetLastError());
+			DecreaseSendRef();
 			return false;
 		}
 	}
@@ -287,27 +227,6 @@ bool CConnection::SendBuff()
 #endif
 
 	return true;
-}
-
-bool CConnection::PostSend(DWORD dwBytes)
-{
-	m_pSendBuff->Lock();
-
-	InterlockedExchange(&m_dwSendWait, FALSE);
-
-	bool ret = m_pSendBuff->PostSend(dwBytes);
-
-	DWORD dwUsageBytes =  m_pSendBuff->GetUsageBytes();
-
-	if (dwUsageBytes > 0) 
-	{
-		SendBuff();
-		InterlockedExchange(&m_dwSendWait, TRUE);
-	}
-
-	m_pSendBuff->UnLock();
-	
-	return ret;
 }
 
 void CConnection::LockSend()
@@ -335,6 +254,50 @@ SOCKET CConnection::GetSocket()
 	return m_socket;
 }
 
+bool CConnection::GetConnectionStaus()
+{
+	return m_ConnectionStatus;
+}
+
+void CConnection::SetConnectionStatus(bool status)
+{
+	m_ConnectionStatus = status;
+}
+
+void CConnection::SetRemoteIP(char* szIP, DWORD dwLength)
+{
+	memcpy(m_szIP, szIP, dwLength);
+}
+
+bool CConnection::GetPeerName(char* pAddress, DWORD* pPort)
+{
+	SOCKADDR_IN addr;
+	int addrlen = sizeof(SOCKADDR_IN);
+	getpeername(m_socket, (sockaddr*)&addr, &addrlen);
+
+	char* p = inet_ntoa(addr.sin_addr);
+
+	memcpy(pAddress, p, strlen(p));
+	*pPort = ntohs(addr.sin_port);
+
+	return true;
+}
+
+char* CConnection::GetAddrBuff()
+{
+	return m_AddrBuf;
+}
+
+DWORD CConnection::GetRemotePort()
+{
+	return m_dwRemotePort;
+}
+
+void CConnection::SetRemotePort(DWORD dwPort)
+{
+	m_dwRemotePort = dwPort;
+}
+
 OverlappedEX* CConnection::GetRecvOverlapped()
 {
 	return m_pRecvOverlapped;
@@ -360,6 +323,11 @@ DWORD CConnection::GetAcceptRefCount()
 	return m_dwAcceptRefCount;
 }
 
+DWORD CConnection::GetConnectRefCount()
+{
+	return m_dwConnectRefCount;
+}
+
 DWORD CConnection::GetRecvRefCount()
 {
 	return m_dwRecvRefCount;
@@ -370,64 +338,45 @@ DWORD CConnection::GetSendRefCount()
 	return m_dwSendRefCount;
 }
 
-void CConnection::AcceptRefIncrease()
+void CConnection::IncreaseAcceptRef()
 {
 	InterlockedIncrement(&m_dwAcceptRefCount);
 }
 
-void CConnection::AcceptRefDecrease()
+void CConnection::DecreaseAcceptRef()
 {
 	InterlockedDecrement(&m_dwAcceptRefCount);
 }
 
-void CConnection::RecvRefIncrease()
+void CConnection::IncreaseConnectRef()
+{
+	InterlockedIncrement(&m_dwConnectRefCount);
+}
+
+void CConnection::DecreaseConnectRef()
+{
+	InterlockedDecrement(&m_dwConnectRefCount);
+}
+
+void CConnection::IncreaseRecvRef()
 {
 	InterlockedIncrement(&m_dwRecvRefCount);
 }
 
-void CConnection::RecvRefDecrease()
+void CConnection::DecreaseRecvRef()
 {
 	InterlockedDecrement(&m_dwRecvRefCount);
 }
 
-void CConnection::SendRefIncrease()
+void CConnection::IncreaseSendRef()
 {
 	InterlockedIncrement(&m_dwSendRefCount);
 }
 
-void CConnection::SendRefDecrease()
+void CConnection::DecreaseSendRef()
 {
 	InterlockedDecrement(&m_dwSendRefCount);
 }
 
 
 
-bool CConnection::GetConnectionStaus()
-{
-	return m_ConnectionStatus;
-}
-
-void CConnection::SetConnectionStatus(bool status)
-{
-	m_ConnectionStatus = status;
-}
-
-void CConnection::SetRemoteIP(char* szIP, DWORD dwLength)
-{
-	memcpy(m_szIP, szIP, dwLength);
-}
-
-char* CConnection::GetAddrBuff()
-{
-	return m_AddrBuf;
-}
-
-DWORD CConnection::GetRemotePort()
-{
-	return m_dwRemotePort;
-}
-
-void CConnection::SetRemotePort(DWORD dwPort)
-{
-	m_dwRemotePort = dwPort;
-}

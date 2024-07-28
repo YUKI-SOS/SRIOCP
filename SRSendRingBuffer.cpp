@@ -83,7 +83,7 @@ bool SRSendRingBuffer::Push(char* pMsg, DWORD dwLength)
 	return true;
 }
 
-bool SRSendRingBuffer::PostSend(DWORD dwLength)
+void SRSendRingBuffer::PostSend(DWORD dwLength)
 {
 	printf("PostSend Prev m_pReadPos = %p dwLength = %d \n", m_pReadPos, dwLength);
 
@@ -91,7 +91,6 @@ bool SRSendRingBuffer::PostSend(DWORD dwLength)
 	m_dwUsageBytes -= dwLength;
 
 	printf("PostSend After m_pReadPos = %p \n", m_pReadPos);
-	return true;
 }
 
 char* SRSendRingBuffer::GetReadPtr()

@@ -1,8 +1,9 @@
 #pragma once
 #include <Windows.h>
 
-//여러 스레드에서 통보 완료 받기 전에 Send 할 수 있으니 락이 필요하다. 
-//
+//여러 스레드에서 Send 할 수 있으니 락이 필요하다. 
+//링버퍼의 리드 라이트 위치등을 지키려면 락 외에도 send 통보 완료 전까지 다시 send할 수 없도록 해야 한다.
+//완료 전에는 링버퍼에 push만 해놓고 통보 되면 쌓인 것들을 보낸다. 
 
 class SRSendRingBuffer 
 {
@@ -13,7 +14,7 @@ public:
 public:
 	bool Initialize(DWORD dwSize);
 	bool Push(char* pMsg, DWORD dwLength); //링버퍼에 쓰기
-	bool PostSend(DWORD dwLength); //완료 통보 후 read 증가
+	void PostSend(DWORD dwLength); //완료 통보 후 read 증가
 
 	char* GetReadPtr();
 	DWORD GetReservedBytes();

@@ -17,25 +17,21 @@ public:
 	int SetAcceptContextOpt(); //getpeername 및 getsockname 정상 작동하기 위해서 필요
 	int SetConnectContextOpt();
 
-	void PostAccept();
-	void PostConnect();
-	bool PostRecv();
+	bool CloseSocket();
 
-
-	//recv 오버랩 함수
+	//recv
+	bool PrepareRecv();
 	void RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum);
 	void CheckReset();
 
-	//send 오버랩 함수
+	//send
 	bool Send(char* pMsg, DWORD dwBytes); //네트워크 쪽에서 호출
 	bool PushSend(char* pMsg, DWORD dwBytes); //보내기 전까지 메세지 넣기
 	bool SendBuff(); //실제 WSASend가 호출되어 send 를 대기
-	bool PostSend(DWORD dwBytes);
 
 	void LockSend();
 	void UnLockSend();
 
-	bool CloseSocket();
 
 public:
 	CIocp* GetNetwork();
@@ -58,19 +54,21 @@ public:
 	SRRecvRingBuffer* GetRecvRingBuff();
 	SRSendRingBuffer* GetSendRingBuff();
 
-
 	DWORD GetAcceptRefCount();
+	DWORD GetConnectRefCount();
 	DWORD GetRecvRefCount();
 	DWORD GetSendRefCount();
 
-	void AcceptRefIncrease();
-	void AcceptRefDecrease();
-	void RecvRefIncrease();
-	void RecvRefDecrease();
-	void SendRefIncrease();
-	void SendRefDecrease();
+	void IncreaseAcceptRef();
+	void DecreaseAcceptRef();
+	void IncreaseConnectRef();
+	void DecreaseConnectRef();
+	void IncreaseRecvRef();
+	void DecreaseRecvRef();
+	void IncreaseSendRef();
+	void DecreaseSendRef();
 
-private:
+public:
 	CIocp* m_pNetwork;
 	DWORD m_dwConnectionIndex; //커넥션 번호
 	SOCKET m_socket;
@@ -89,6 +87,7 @@ private:
 	//IO가 걸려있는 만큼 끊어졌을 때에도 GQCS가 응답한다. 걸려있는 IO가 전부 처리되었을 때(레퍼런스 카운트가 모두 0) 끊을 수 있도록 한다.
 	//CloseSocket 대신 DisconnectEX로 IO를 걸고 통보 받으면 AcceptEX를 다시 거는 구조.
 	DWORD m_dwAcceptRefCount;
+	DWORD m_dwConnectRefCount;
 	DWORD m_dwRecvRefCount; 
 	DWORD m_dwSendRefCount;
 

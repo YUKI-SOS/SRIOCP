@@ -30,19 +30,21 @@ public:
 	virtual ~CIocp();
 
 public:
-	bool InitConnectionList(DWORD dwCount);
-	bool GetIoExFuncPointer();
+	//초기화
 	bool InitNetwork(ECSType csType, UINT port); // 클라이언트의 경우 포트는 NULL 넣어서 이용.
-	
-	void InitSocketOption(SOCKET socket);
-	void SetReuseSocketOpt(SOCKET socket);
-	void SetLingerOpt(SOCKET socket);
-	void SetNagleOffOpt(SOCKET socket);
-	
-
+	bool InitConnectionList(DWORD dwCount);
 	bool InitAcceptPool(DWORD dwNum);
 	//bool InitConnectPool(UINT num);
 
+	bool GetIoExFuncPointer();
+	
+	//워커스레드
+	bool CreateWorkerThread();
+	static unsigned __stdcall WorkerThread(LPVOID CompletionPortObj);
+	void StopWorkerThread();
+	UINT GetThreadLockNum();
+
+	//함수포인터
 	static void SetOnAcceptFunc(AcceptFunc pFunc) { g_pOnAcceptFunc = pFunc; };
 	static void OnAccept(DWORD dwIndex) { g_pOnAcceptFunc(dwIndex); };
 	
@@ -55,38 +57,47 @@ public:
 	static void SetOnRecvFunc(RecvFunc pFunc) { g_pOnRecvFunc = pFunc; };
 	static void OnRecv(DWORD dwIndex, char* pMsg, DWORD dwLength) { g_pOnRecvFunc(dwIndex, pMsg, dwLength); };
 
-	bool CreateWorkerThread();
-	static unsigned __stdcall WorkerThread(LPVOID CompletionPortObj);
+	//소켓 옵션
+	void InitSocketOption(SOCKET socket);
+	void SetReuseSocketOption(SOCKET socket);
+	void SetLingerSocketOption(SOCKET socket);
+	void SetNagleOffSocketOption(SOCKET socket);
 
+	//커넥션 관리
+	CConnection* GetConnection(DWORD dwIndex);
+	CConnection* GetFreeConnection();
+	
+	//IO통보 후 처리
+	void PostAccept(DWORD dwIndex);
+	void PostConnect(DWORD dwIndex);
+	void PostRecv(DWORD dwIndex, DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum, DWORD dwLockIndex);
+	void PostSend(DWORD dwIndex, DWORD dwBytes);
+
+	//패킷 처리
 	void PacketProcess();
-	//void SendPacketProcess();
 	void SwapRecvQueue();
 	void PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex);
 
-	bool ReAcceptSocket(DWORD dwIndex);
+	//소켓 관리
+	bool ReuseSocket(DWORD dwIndex);
 	bool CloseConnection(DWORD dwIndex);
-
-	SOCKET Connect(char* pAddress, UINT port);
+	
+	SOCKET Connect(char* pAddress, u_short port);
 
 	bool Send(DWORD dwIndex, char* pMsg, DWORD dwBytes);
-	//void SendToBuff(void* lpBuff, int nBuffSize);
 
-	CConnection* GetConnection(DWORD dwIndex);
-	CConnection* GetFreeConnection();
-
-	void StopThread();
-	UINT GetThreadLockNum();
 
 public:
-	ECSType m_eCSType; //서버용/클라용 네트워크 
-	UINT m_nBindPort; //accept용도의 bind할 포트
+	ECSType m_eCSType; //서버 클라이언트 구분.
+	u_short m_nBindPort; //accept용도의 bind할 포트
 	SOCKET m_ListenSocket; //리슨 소켓
 	HANDLE m_CompletionPort; //completionport 핸들
 
-	std::vector<CConnection*> m_ConnectionList; //커넥션 리스트
+	std::vector<CConnection*> m_ServerConnectionList; //서버 입장으로 accept한 커넥션 리스트
+	std::vector<CConnection*> m_ClientConnectionList; //클라이언트 입장으로 connect한 커넥션 리스트
 
 	std::string m_szRemoteIP; //외부에서 연결시도한 커넥션의 ip
-	UINT m_uRemotePort; //외부에서 연결시도한 커넥션의 포트
+	u_short m_nRemotePort; //외부에서 연결시도한 커넥션의 포트
 	bool m_bWorkerThreadLive;
 
 	//Ex함수를 이용하기 위한 함수포인터.
