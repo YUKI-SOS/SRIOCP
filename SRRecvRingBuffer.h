@@ -18,6 +18,7 @@ public:
 	~SRRecvRingBuffer();
 
 	int Initialize(DWORD dwSize);
+	void Recycle();
 	void RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum);
 	void CheckReset();
 
@@ -30,5 +31,5 @@ private:
 	char* m_pWritePos; //리시브 예약 걸 위치
 	DWORD m_dwReservedBytes; //링버퍼의 가용 용량
 	DWORD m_dwUsageBytes; //링버퍼에 남은 데이터. 받아서 링버퍼에 쌓이면 올리고, 패킷으로 인식해서 조립완료하면 줄인다.
-	DWORD m_dwBufferTotalSize; //링버퍼 총 사이즈
+	DWORD m_dwTotalBytes; //링버퍼 총 사이즈
 };

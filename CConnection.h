@@ -13,6 +13,7 @@ public:
 
 public:
 	bool Initialize(DWORD dwConnectionIndex, SOCKET socket, DWORD dwRecvRingBuffSize, DWORD dwSendRingBuffSize);
+	void Recycle();
 	
 	int SetAcceptContextOpt(); //getpeername 및 getsockname 정상 작동하기 위해서 필요
 	int SetConnectContextOpt();
@@ -91,6 +92,6 @@ public:
 	DWORD m_dwRecvRefCount; 
 	DWORD m_dwSendRefCount;
 
-	DWORD m_dwSendWait; //Send 통보 완료 되기 전까지 보내지 않도록 대기. 여러 스레드에서 send와 통보를 받을 수 있으니 인터락으로 관리.
+	DWORD m_dwSendWait; //send 통보 완료 되기 전까지 보내지 않도록 대기. 여러 스레드에서 send와 통보를 받을 수 있으니 인터락으로 관리.
 
 };

@@ -9,7 +9,7 @@ SRRecvRingBuffer::SRRecvRingBuffer()
 	m_pWritePos = nullptr;
 	m_dwUsageBytes = 0;
 	m_dwReservedBytes = 0;
-	m_dwBufferTotalSize = 0;
+	m_dwTotalBytes = 0;
 }
 
 SRRecvRingBuffer::~SRRecvRingBuffer()
@@ -19,9 +19,9 @@ SRRecvRingBuffer::~SRRecvRingBuffer()
 
 int SRRecvRingBuffer::Initialize(DWORD dwSize)
 {
-	m_dwBufferTotalSize = dwSize;
+	m_dwTotalBytes = dwSize;
 
-	m_pBuffer = new char[m_dwBufferTotalSize];
+	m_pBuffer = new char[m_dwTotalBytes];
 	if (m_pBuffer == nullptr)
 	{
 		printf("%s %d Alloc Fail\n", __FUNCTION__, __LINE__);
@@ -36,6 +36,18 @@ int SRRecvRingBuffer::Initialize(DWORD dwSize)
 	m_dwReservedBytes = dwSize;
 
 	return 0;
+}
+
+void SRRecvRingBuffer::Recycle()
+{
+	memset(m_pBuffer, 0, m_dwTotalBytes);
+
+	m_pReadPos = m_pBuffer;
+	m_pWritePos = m_pBuffer;
+
+	m_dwUsageBytes = 0;
+	m_dwReservedBytes = m_dwTotalBytes;
+
 }
 
 void SRRecvRingBuffer::RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum)
@@ -90,7 +102,7 @@ void SRRecvRingBuffer::CheckReset()
 	//가용 용량이 리셋하기로 정해둔 사이즈보다 작으면 맨 앞으로 땡긴다.
 	if (m_dwReservedBytes < RESET_RESERVE_SIZE) 
 	{
-		m_dwReservedBytes = m_dwBufferTotalSize - m_dwUsageBytes; //버퍼의 가용 용량 재계산.
+		m_dwReservedBytes = m_dwTotalBytes - m_dwUsageBytes; //버퍼의 가용 용량 재계산.
 		memcpy(m_pBuffer, m_pReadPos, m_dwUsageBytes); //처리 못하고 남아있는 데이터 버퍼의 시작으로 카피
 		m_pReadPos = m_pBuffer; //리드를 버퍼의 시작으로 설정
 		m_pWritePos = m_pBuffer + m_dwUsageBytes; //라이트를 남은 데이터를 버퍼의 시작으로 카피한 이후로 설정

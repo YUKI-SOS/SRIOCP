@@ -68,6 +68,13 @@ bool CConnection::Initialize(DWORD dwConnectionIndex, SOCKET socket, DWORD dwRec
 	return true;
 }
 
+void CConnection::Recycle()
+{
+	//closesocket()하지 않고 disconnectEX 소켓을 재활용 한다. 재활용 할 때 링버퍼 등을 초기화 해준다.
+	m_pRecvBuff->Recycle();
+	m_pSendBuff->Recycle();
+}
+
 int CConnection::SetAcceptContextOpt()
 {
 	int iRet = setsockopt(m_socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char*)&(m_pNetwork->m_ListenSocket), sizeof(SOCKET));

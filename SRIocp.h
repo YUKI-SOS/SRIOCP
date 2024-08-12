@@ -31,10 +31,12 @@ public:
 
 public:
 	//초기화
+	bool Initialize(ECSType eCSType, UINT uPort, UINT dwNum);
 	bool InitNetwork(ECSType csType, UINT port); // 클라이언트의 경우 포트는 NULL 넣어서 이용.
-	bool InitConnectionList(DWORD dwCount);
-	bool InitAcceptPool(DWORD dwNum);
-	//bool InitConnectPool(UINT num);
+	bool InitAcceptConnection(DWORD dwNum);
+	bool InitAccepIoCompletionPort(DWORD dwNum);
+	bool InitConnectConnection(DWORD dwNum);
+	bool InitConnectIoCompletionPort(DWORD dwNum);
 
 	bool GetIoExFuncPointer();
 	
@@ -65,7 +67,8 @@ public:
 
 	//커넥션 관리
 	CConnection* GetConnection(DWORD dwIndex);
-	CConnection* GetFreeConnection();
+	CConnection* GetClientConnection(DWORD dwIndex);
+	CConnection* GetFreeClientConnection();
 	
 	//IO통보 후 처리
 	void PostAccept(DWORD dwIndex);
@@ -94,7 +97,7 @@ public:
 	HANDLE m_CompletionPort; //completionport 핸들
 
 	std::vector<CConnection*> m_ServerConnectionList; //서버 입장으로 accept한 커넥션 리스트
-	std::vector<CConnection*> m_ClientConnectionList; //클라이언트 입장으로 connect한 커넥션 리스트
+	std::vector<CConnection*> m_ClientConnectionList; //클라이언트 입장으로 connect한 커넥션 리스트. 클라이언트에서 쓸 수도 있고, 서버 간 통신으로 서버가 다른 서버에 클라이언트 입장으로 붙을 때도 쓸 수 있다.
 
 	std::string m_szRemoteIP; //외부에서 연결시도한 커넥션의 ip
 	u_short m_nRemotePort; //외부에서 연결시도한 커넥션의 포트
@@ -130,7 +133,8 @@ public:
 	SRWLOCK* m_pBufferSwapLock; //버퍼 스왑용 SRWLock 배열
 	DWORD* m_pThreadIdArr; //워커스레드 아이디 배열
 
-	DWORD m_dwConnectionMax; //커넥션 맥스 최대 개수
+	DWORD m_dwAcceptConnectionMax; //accept커넥션 맥스 최대 개수
+	DWORD m_dwConnectConnectionMax; //connect커넥션 맥스 최대 개수
 	DWORD m_dwConnectionSize; //커넥션 현재 개수
 };
 

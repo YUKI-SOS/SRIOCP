@@ -19,8 +19,8 @@ const DWORD SEND_QUEUE_MAX = 1000; //8192 * 1000 = 8Mb
 
 //const DWORD RECV_RING_BUFFER_MAX = RECV_PACKET_MAX * 32; //커넥션 마다 가지는 리시브 링버퍼 사이즈 1024 * 32 * n = 32Kb * n
 //const DWORD SEND_RING_BUFFER_MAX = SEND_PACKET_MAX * 32; //커넥션 마다 가지는 센드 링버퍼 사이즈 8192 * 32 * n = 256Kb * n
-const DWORD RECV_RING_BUFFER_MAX = 1024; //커넥션 마다 가지는 리시브 링버퍼 사이즈 1024 * 32 * n = 32Kb * n
-const DWORD SEND_RING_BUFFER_MAX = 8192; //커넥션 마다 가지는 센드 링버퍼 사이즈 8192 * 32 * n = 256Kb * n
+const DWORD RECV_RING_BUFFER_MAX = 1024; 
+const DWORD SEND_RING_BUFFER_MAX = 8192; 
 
 const DWORD IP_BUFF_SIZE = 17;
 const DWORD ADDR_BUFF_SIZE = 64;

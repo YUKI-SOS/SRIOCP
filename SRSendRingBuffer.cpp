@@ -6,7 +6,7 @@ SRSendRingBuffer::SRSendRingBuffer()
 	m_pBuffer = nullptr;
 	m_pReadPos = nullptr;
 	m_pWritePos = nullptr;
-	m_dwBufferSize = 0;
+	m_dwTotalBytes = 0;
 	m_dwUsageBytes = 0;
 	m_dwReserveBytes = 0;
 }
@@ -21,11 +21,9 @@ SRSendRingBuffer::~SRSendRingBuffer()
 
 bool SRSendRingBuffer::Initialize(DWORD dwSize)
 {
-	m_dwBufferSize = dwSize;
-	m_dwUsageBytes = 0;
-	m_dwReserveBytes = dwSize;
+	m_dwTotalBytes = dwSize;	
 
-	m_pBuffer = new char[m_dwBufferSize];
+	m_pBuffer = new char[m_dwTotalBytes];
 	if (m_pBuffer == nullptr)
 	{
 		printf("%s %d Alloc Fail\n", __FUNCTION__, __LINE__);
@@ -36,17 +34,31 @@ bool SRSendRingBuffer::Initialize(DWORD dwSize)
 	m_pReadPos = m_pBuffer;
 	m_pWritePos = m_pBuffer;
 
+	m_dwUsageBytes = 0;
+	m_dwReserveBytes = dwSize;
+
 	InitializeSRWLock(&m_sendLock);
 
 	return true;
 }
 
+void SRSendRingBuffer::Recycle()
+{
+	memset(m_pBuffer, 0, m_dwTotalBytes);
+
+	m_pReadPos = m_pBuffer;
+	m_pWritePos = m_pBuffer;
+
+	m_dwUsageBytes = 0;
+	m_dwReserveBytes = m_dwTotalBytes;
+}
+
 bool SRSendRingBuffer::Push(char* pMsg, DWORD dwLength)
 {
 	//링버퍼 전체 사이즈 보다 큰 메세지가 들어오려고 하는지 체크
-	if (m_dwBufferSize < dwLength) 
+	if (m_dwTotalBytes < dwLength) 
 	{
-		printf("%s:%d m_dwBufferSize = %d dwLength = %d \n", __FUNCTION__, __LINE__, m_dwBufferSize, dwLength);
+		printf("%s:%d m_dwBufferSize = %d dwLength = %d \n", __FUNCTION__, __LINE__, m_dwTotalBytes, dwLength);
 		return false;
 	}
 
@@ -60,7 +72,7 @@ bool SRSendRingBuffer::Push(char* pMsg, DWORD dwLength)
 		m_pReadPos = m_pBuffer; //리드의 위치를 버퍼의 시작으로 설정.
 		m_pWritePos = m_pBuffer + m_dwUsageBytes; //라이트의 위치를 버퍼의 시작 + 처리 안된 메세지 길이 이후로 설정.
 
-		m_dwReserveBytes = m_dwBufferSize - m_dwUsageBytes; //여유를 전체에서 사용량을 빼서 갱신한다.
+		m_dwReserveBytes = m_dwTotalBytes - m_dwUsageBytes; //여유를 전체에서 사용량을 빼서 갱신한다.
 	} 
 	
 	//순환 했음에도 길이가 부족하다면 실패 처리 
