@@ -63,6 +63,11 @@ bool CConnection::Initialize(DWORD dwConnectionIndex, SOCKET socket, DWORD dwRec
 	m_pSendOverlapped = new OverlappedEX;
 	m_pSendOverlapped->dwIndex = dwConnectionIndex;
 
+	m_dwAcceptRefCount = 0;
+	m_dwConnectRefCount = 0;
+	m_dwRecvRefCount = 0;
+	m_dwSendRefCount = 0;
+
 	m_dwSendWait = 0;
 
 	return true;
@@ -104,11 +109,21 @@ bool CConnection::CloseSocket()
 	//진짜로 소켓을 초기화 하는 처리.
 	//기본적으로 소켓을 재활용하기 때문에 비정상 적인 상황이나 종료 시 사용한다. 
 
-	if (m_socket != INVALID_SOCKET)
+	if (m_socket == INVALID_SOCKET)
 	{
-		closesocket(m_socket);
-		m_socket = INVALID_SOCKET;
+		printf("CloseSocket Fail. m_socket = INVALID_SOCKET \n");
+		return false;
 	}
+
+	int iError = closesocket(m_socket);
+
+	if (iError == SOCKET_ERROR)
+	{
+		printf("CloseSocket Fail. WSAGetLastError = %d \n", WSAGetLastError());
+		return false;
+	}
+
+	m_socket = INVALID_SOCKET;	
 
 	return true;
 }
@@ -158,11 +173,11 @@ bool CConnection::Send(char* pMsg, DWORD dwBytes)
 {
 	m_pSendBuff->Lock();
 	
-	bool ret = false;
-	
-	ret = PushSend(pMsg, dwBytes);
+	bool bPush = false;
 
-	if (ret == false) 
+	bPush = PushSend(pMsg, dwBytes);
+
+	if (bPush == false)
 	{
 		m_pSendBuff->UnLock();
 		return false;
@@ -175,15 +190,16 @@ bool CConnection::Send(char* pMsg, DWORD dwBytes)
 		return true;
 	}
 
-	ret = SendBuff();
+	bool bSend = SendBuff();
 	
+	//send하려는 길이와 send버퍼 처리 못하고 남은 길이가 다를 때 체크. 즉 한 번에 다 못보내는 경우가 있는지 체크.
 	if (dwBytes != m_pSendBuff->GetUsageBytes())
 	{
 		printf("Send dwbytes = %d usageBytes = %d \n", dwBytes, m_pSendBuff->GetUsageBytes());
 		__debugbreak();
 	}
 
-	if (ret == false) 
+	if (bSend == false)
 	{
 		m_pSendBuff->UnLock();
 		return false;
@@ -193,7 +209,6 @@ bool CConnection::Send(char* pMsg, DWORD dwBytes)
 	InterlockedExchange(&m_dwSendWait, TRUE);
 
 	m_pSendBuff->UnLock();
-
 	return true;
 }
 
@@ -246,14 +261,19 @@ void CConnection::UnLockSend()
 	m_pSendBuff->UnLock();
 }
 
-CIocp* CConnection::GetNetwork()
+CIocpManager* CConnection::GetNetwork()
 {
 	return m_pNetwork;
 }
 
-void CConnection::SetNetwork(CIocp* pNetwork)
+void CConnection::SetNetwork(CIocpManager* pNetwork)
 {
 	m_pNetwork = pNetwork;
+}
+
+DWORD CConnection::GetConnectionIndex()
+{
+	return m_dwConnectionIndex;
 }
 
 SOCKET CConnection::GetSocket()

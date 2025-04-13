@@ -12,22 +12,22 @@
 #include "NetworkDefine.h"
 #include "CConnection.h"
 
-class CIocp;
+class CIocpManager;
 class CConnection;
 
 //라이브러리를 사용할 외부에서 건네줄 함수포인터
 typedef void (*AcceptFunc)(DWORD dwIndex);
 typedef void (*ConnectFunc)(DWORD dwIndex);
 typedef void (*CloseFunc)(DWORD dwIndex);
-typedef void (*RecvFunc)(DWORD dwIndex, char* pMsg, DWORD dwLength);
+typedef void (*RecvFunc)(DWORD dwIndex, char* pMsg, DWORD dwBytes);
 
 
-class CIocp
+class CIocpManager
 {
 
 public:
-	CIocp();
-	virtual ~CIocp();
+	CIocpManager();
+	virtual ~CIocpManager();
 
 public:
 	//초기화
@@ -57,7 +57,7 @@ public:
 	static void OnClose(DWORD dwIndex) { g_pOnCloseFunc(dwIndex); };
 	
 	static void SetOnRecvFunc(RecvFunc pFunc) { g_pOnRecvFunc = pFunc; };
-	static void OnRecv(DWORD dwIndex, char* pMsg, DWORD dwLength) { g_pOnRecvFunc(dwIndex, pMsg, dwLength); };
+	static void OnRecv(DWORD dwIndex, char* pMsg, DWORD dwBytes) { g_pOnRecvFunc(dwIndex, pMsg, dwBytes); };
 
 	//소켓 옵션
 	void InitSocketOption(SOCKET socket);
@@ -67,6 +67,7 @@ public:
 
 	//커넥션 관리
 	CConnection* GetConnection(DWORD dwIndex);
+	CConnection* GetServerConnection(DWORD dwIndex);
 	CConnection* GetClientConnection(DWORD dwIndex);
 	CConnection* GetFreeClientConnection();
 	
@@ -85,7 +86,7 @@ public:
 	bool ReuseSocket(DWORD dwIndex);
 	bool CloseConnection(DWORD dwIndex);
 	
-	SOCKET Connect(char* pAddress, u_short port);
+	CConnection* Connect(char* pAddress, u_short port);
 
 	bool Send(DWORD dwIndex, char* pMsg, DWORD dwBytes);
 

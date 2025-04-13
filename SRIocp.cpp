@@ -2,13 +2,13 @@
 #include "CConnection.h"
 
 //전역 변수 초기화
-AcceptFunc CIocp::g_pOnAcceptFunc = NULL;
-ConnectFunc CIocp::g_pOnConnectFunc = NULL;
-CloseFunc CIocp::g_pOnCloseFunc = NULL;
-RecvFunc CIocp::g_pOnRecvFunc = NULL;
+AcceptFunc CIocpManager::g_pOnAcceptFunc = NULL;
+ConnectFunc CIocpManager::g_pOnConnectFunc = NULL;
+CloseFunc CIocpManager::g_pOnCloseFunc = NULL;
+RecvFunc CIocpManager::g_pOnRecvFunc = NULL;
 
 
-CIocp::CIocp()
+CIocpManager::CIocpManager()
 {
 	m_ListenSocket = INVALID_SOCKET;
 	m_CompletionPort = NULL;
@@ -43,7 +43,7 @@ CIocp::CIocp()
 }
 
 
-CIocp::~CIocp()
+CIocpManager::~CIocpManager()
 {
 	if (m_pBufferSwapLock != nullptr)
 		delete[] m_pBufferSwapLock;
@@ -52,14 +52,14 @@ CIocp::~CIocp()
 
 }
 
-bool CIocp::InitAcceptConnection(DWORD dwNum)
+bool CIocpManager::InitAcceptConnection(DWORD dwNum)
 {
 	m_ServerConnectionList.resize(dwNum);
 
 	for (DWORD i = 0; i < dwNum; i++)
 	{
 		CConnection* pConnection = new CConnection;
-		SOCKET socket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_IP, NULL, 0, WSA_FLAG_OVERLAPPED);
+		SOCKET socket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
 		pConnection->Initialize(i, socket, RECV_RING_BUFFER_MAX, SEND_RING_BUFFER_MAX);
 		pConnection->SetNetwork(this);
 		m_ServerConnectionList[i] = pConnection;
@@ -70,7 +70,7 @@ bool CIocp::InitAcceptConnection(DWORD dwNum)
 	return true;
 }
 
-bool CIocp::GetIoExFuncPointer()
+bool CIocpManager::GetIoExFuncPointer()
 {
 	//AcceptEx 함수 쓸 수 있도록 등록
 	lpfnAcceptEx = NULL;
@@ -132,12 +132,12 @@ bool CIocp::GetIoExFuncPointer()
 	return true;
 }
 
-bool CIocp::Initialize(ECSType eCSType, UINT uPort, UINT dwNum)
+bool CIocpManager::Initialize(ECSType eCSType, UINT uPort, UINT dwNum)
 {
 	return false;
 }
 
-bool CIocp::InitNetwork(ECSType csType, UINT port)
+bool CIocpManager::InitNetwork(ECSType csType, UINT port)
 {
 	int retVal;
 	WSADATA wsaData;
@@ -257,13 +257,13 @@ bool CIocp::InitNetwork(ECSType csType, UINT port)
 
 }
 
-void CIocp::InitSocketOption(SOCKET socket)
+void CIocpManager::InitSocketOption(SOCKET socket)
 {
 	SetLingerSocketOption(socket);
 	SetNagleOffSocketOption(socket);
 }
 
-void CIocp::SetReuseSocketOption(SOCKET socket)
+void CIocpManager::SetReuseSocketOption(SOCKET socket)
 {
 	//socket Reuse Option. SO_REUSEADDR은 서버 소켓에서만 time_wait를 재활용 할 수 있는 것 같다.
 	int option = 1;
@@ -273,7 +273,7 @@ void CIocp::SetReuseSocketOption(SOCKET socket)
 	};
 }
 
-void CIocp::SetLingerSocketOption(SOCKET socket)
+void CIocpManager::SetLingerSocketOption(SOCKET socket)
 {
 	//onoff 0 - default 소켓버퍼에 남은 데이터를 전부 보내고 종료하는 정상종료
 	//onoff 1 linger 0 - close 즉시 리턴하고 소켓버퍼에 남은 데이터를 버리는 비정상종료.
@@ -285,13 +285,13 @@ void CIocp::SetLingerSocketOption(SOCKET socket)
 	setsockopt(socket, SOL_SOCKET, SO_LINGER, (CHAR*)&linger, sizeof(linger));
 }
 
-void CIocp::SetNagleOffSocketOption(SOCKET socket)
+void CIocpManager::SetNagleOffSocketOption(SOCKET socket)
 {
 	int nagleOpt = 1; //1 비활성화 0 활성화
 	setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, (const char*)&nagleOpt, sizeof(nagleOpt));
 }
 
-bool CIocp::CreateWorkerThread()
+bool CIocpManager::CreateWorkerThread()
 {
 	HANDLE threadHandle; //워커스레드 핸들
 
@@ -336,9 +336,9 @@ bool CIocp::CreateWorkerThread()
 }
 
 //Overlapped IO 작업 완료 통보를 받아 처리하는 워커 스레드
-unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
+unsigned __stdcall CIocpManager::WorkerThread(LPVOID CompletionPortObj)
 {
-	CIocp* arg = (CIocp*)CompletionPortObj;
+	CIocpManager* arg = (CIocpManager*)CompletionPortObj;
 	HANDLE completionport = arg->m_CompletionPort;
 	ULONG_PTR key = NULL;
 	LPOVERLAPPED lpOverlapped = NULL;
@@ -377,7 +377,7 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 			continue;
 		}*/
 
-		CIocp* pIocp = (CIocp*)key;
+		CIocpManager* pIocp = (CIocpManager*)key;
 		OverlappedEX* pOverlapped = (OverlappedEX*)lpOverlapped;
 		DWORD dwIndex = pOverlapped->dwIndex;
 		CConnection* pConnection = arg->GetConnection(dwIndex);
@@ -477,7 +477,7 @@ unsigned __stdcall CIocp::WorkerThread(LPVOID CompletionPortObj)
 	return 0;
 }
 
-void CIocp::PacketProcess()
+void CIocpManager::PacketProcess()
 {
 	//리드버퍼 다 처리했으면 탈출
 	if (m_dwReadQueuePos >= m_dwReadQueueSize)
@@ -517,7 +517,7 @@ SWAPCHECK:
 
 }
 
-void CIocp::SwapRecvQueue()
+void CIocpManager::SwapRecvQueue()
 {
 	//스왑 중에 라이트 큐에 넣지 못하도록 일괄 락.
 	for (DWORD i = 0; i < m_dwLockNum; i++)
@@ -565,7 +565,7 @@ void CIocp::SwapRecvQueue()
 
 }
 
-void CIocp::PushWriteQueue(DWORD dwIndex, char* pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex)
+void CIocpManager::PushWriteQueue(DWORD dwIndex, char* pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex)
 {
 	//큐에 푸쉬하는 도중 큐 스왑이 일어나지 않기 위한 락
 	AcquireSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
@@ -618,7 +618,7 @@ void CIocp::PushWriteQueue(DWORD dwIndex, char* pMsg, DWORD dwMsgNum, DWORD dwMs
 	ReleaseSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
 }
 
-bool CIocp::InitAccepIoCompletionPort(DWORD dwNum)
+bool CIocpManager::InitAccepIoCompletionPort(DWORD dwNum)
 {
 	DWORD dwFlags;
 	DWORD dwBytes;
@@ -680,14 +680,14 @@ bool CIocp::InitAccepIoCompletionPort(DWORD dwNum)
 	return true;
 }
 
-bool CIocp::InitConnectConnection(DWORD dwNum)
+bool CIocpManager::InitConnectConnection(DWORD dwNum)
 {
 	m_ClientConnectionList.resize(dwNum);
 
 	for (DWORD i = 0; i < dwNum; i++) 
 	{
 		CConnection* pConnection = new CConnection;
-		SOCKET socket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_IP, NULL, 0, WSA_FLAG_OVERLAPPED);
+		SOCKET socket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
 		pConnection->Initialize(i, socket, RECV_RING_BUFFER_MAX, SEND_RING_BUFFER_MAX);
 		pConnection->SetNetwork(this);
 		m_ClientConnectionList[i] = pConnection;
@@ -698,7 +698,7 @@ bool CIocp::InitConnectConnection(DWORD dwNum)
 }
 
 
-bool CIocp::InitConnectIoCompletionPort(DWORD dwNum)
+bool CIocpManager::InitConnectIoCompletionPort(DWORD dwNum)
 {
 	//AcceptEX 나 WSARecv처럼 걸어놓고 나중에 반응하는 형태는 아님.
 	//ip port로 connect 해야 하기 때문에 미리 Connect가 걸린 풀을 준비할 수 는 없음.
@@ -708,12 +708,22 @@ bool CIocp::InitConnectIoCompletionPort(DWORD dwNum)
 	ZeroMemory(&addr, sizeof(addr));
 	addr.sin_family = AF_INET;
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	addr.sin_port = 0;
 
 	for (int i = 0; i < dwNum; i++)
 	{
 		//오버랩IO를 위해 구조체 세팅
 		CConnection* pConnection = GetClientConnection(i);
+		OverlappedEX* pOverlapped = pConnection->GetRecvOverlapped();
 		SOCKET socket = pConnection->GetSocket();
+
+		if (pOverlapped == nullptr)
+			return false;
+
+		ZeroMemory(&pOverlapped->overlapped, sizeof(OVERLAPPED));
+		pOverlapped->wsabuff.len = 0;
+		pOverlapped->wsabuff.buf = pConnection->GetAddrBuff();
+		pOverlapped->eIoType = IOType::CONNECT;
 
 		pConnection->SetConnectionStatus(false);
 
@@ -746,7 +756,7 @@ bool CIocp::InitConnectIoCompletionPort(DWORD dwNum)
 }
 
 
-bool CIocp::ReuseSocket(DWORD dwIndex)
+bool CIocpManager::ReuseSocket(DWORD dwIndex)
 {
 	//DWORD flags;
 	DWORD dwBytes = 0;
@@ -790,7 +800,7 @@ bool CIocp::ReuseSocket(DWORD dwIndex)
 	return true;
 }
 
-bool CIocp::CloseConnection(DWORD dwIndex)
+bool CIocpManager::CloseConnection(DWORD dwIndex)
 {
 	//TF_REUSE_SOCKET 하여 소켓 재활용 한다.
 	//비정상 적인 상황이나 종료 시에 CConnection이 가진 CloseSocket 으로 진짜 소켓 해제.	
@@ -818,6 +828,7 @@ bool CIocp::CloseConnection(DWORD dwIndex)
 	pOverlapped->eIoType = IOType::DISCONNECT;
 	pConnection->SetConnectionStatus(false);
 
+
 	//TF_DISCONNECT넣으면 10022 WSAEINVAL 오류 바인딩 실패. 
 	//lpfnDisconnectEx(socket, NULL, TF_DISCONNECT | TF_REUSE_SOCKET, NULL);
 
@@ -842,7 +853,7 @@ bool CIocp::CloseConnection(DWORD dwIndex)
 	return true;
 }
 
-SOCKET CIocp::Connect(char* pAddress, u_short port)
+CConnection* CIocpManager::Connect(char* pAddress, u_short port)
 {
 	//gethostbyname이 deprecated. getaddrinfo를 대신 써서 domain으로 부터 ip를 얻는다. 
 	/*
@@ -865,7 +876,7 @@ SOCKET CIocp::Connect(char* pAddress, u_short port)
 	if (pAddrInfo == nullptr)
 	{
 		std::cout << "domain convert address fail" << std::endl;
-		return INVALID_SOCKET;
+		return NULL;
 	}
 
 	sockaddr_in* pSockAddr_in = (sockaddr_in*)pAddrInfo->ai_addr;
@@ -881,22 +892,10 @@ SOCKET CIocp::Connect(char* pAddress, u_short port)
 	CConnection* pConnection = GetFreeClientConnection();
 
 	if (pConnection == nullptr)
-		return INVALID_SOCKET;
+		return NULL;
 
 	OverlappedEX* pOverlapped = pConnection->GetRecvOverlapped();
-	SOCKET socket = pConnection->GetSocket();
-	/*
-	if (pConnection == NULL)
-	{
-		//다시 커넥트 소켓풀 초기화
-		if (!InitConnectIoCompletionPort(m_dwAcceptConnectionMax))
-		{
-			std::cout << "re_InitConnectPool fail" << std::endl;
-		};
-		OutputDebugString(L"커넥션풀 초기화");
-		pConnection = GetFreeClientConnection();
-	}
-	*/
+	SOCKET socket = pConnection->GetSocket();	
 
 	//어차피 해당 타입이 다른 프로세스로 넘어가진 않는다. 
 	//IOType::CONNECT으로 해서 커넥트 시에 발생하는 0바이트 패킷을 연결이 끊어주는 패킷과 구분해주도록 한다.
@@ -920,20 +919,30 @@ SOCKET CIocp::Connect(char* pAddress, u_short port)
 		}
 	};
 
-	return socket;
+	return pConnection;
 }
 
-CConnection* CIocp::GetConnection(DWORD dwIndex)
+CConnection* CIocpManager::GetConnection(DWORD dwIndex)
+{
+	if (m_eCSType == ECSType::SERVER)
+		return GetServerConnection(dwIndex);
+	else if (m_eCSType == ECSType::CLIENT)
+		return GetClientConnection(dwIndex);
+	else
+		return nullptr;
+}
+
+CConnection* CIocpManager::GetServerConnection(DWORD dwIndex)
 {
 	return m_ServerConnectionList[dwIndex];
 }
 
-CConnection* CIocp::GetClientConnection(DWORD dwIndex)
+CConnection* CIocpManager::GetClientConnection(DWORD dwIndex)
 {
 	return m_ClientConnectionList[dwIndex];
 }
 
-CConnection* CIocp::GetFreeClientConnection()
+CConnection* CIocpManager::GetFreeClientConnection()
 {
 	for (DWORD i = 0; i < m_dwConnectConnectionMax; i++)
 	{
@@ -944,7 +953,7 @@ CConnection* CIocp::GetFreeClientConnection()
 	return nullptr;
 }
 
-bool CIocp::Send(DWORD dwIndex, char* pMsg, DWORD dwBytes)
+bool CIocpManager::Send(DWORD dwIndex, char* pMsg, DWORD dwBytes)
 {
 	DWORD dwCurrentThreadId = GetCurrentThreadId();
 
@@ -954,7 +963,7 @@ bool CIocp::Send(DWORD dwIndex, char* pMsg, DWORD dwBytes)
 	return ret;
 }
 
-void CIocp::PostAccept(DWORD dwIndex)
+void CIocpManager::PostAccept(DWORD dwIndex)
 {
 	//https://learn.microsoft.com/ko-kr/windows/win32/api/mswsock/nf-mswsock-acceptex
 	//Windows XP 이상에서는 AcceptEx 함수가 완료되고 허용된 소켓에 SO_UPDATE_ACCEPT_CONTEXT 옵션이 설정되면
@@ -994,12 +1003,12 @@ void CIocp::PostAccept(DWORD dwIndex)
 	pConnection->SetRemoteIP(szRemoteAddr, ADDR_BUFF_SIZE);
 	pConnection->SetRemotePort(dwRemotePort);
 
-	CIocp::OnAccept(dwIndex);
+	CIocpManager::OnAccept(dwIndex);
 
 	pConnection->PrepareRecv();
 }
 
-void CIocp::PostConnect(DWORD dwIndex)
+void CIocpManager::PostConnect(DWORD dwIndex)
 {
 	CConnection* pConnection = GetConnection(dwIndex);
 	SOCKET socket = pConnection->GetSocket();
@@ -1016,7 +1025,7 @@ void CIocp::PostConnect(DWORD dwIndex)
 	pConnection->PrepareRecv();
 }
 
-void CIocp::PostRecv(DWORD dwIndex, DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum, DWORD dwLockIndex)
+void CIocpManager::PostRecv(DWORD dwIndex, DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum, DWORD dwLockIndex)
 {
 	CConnection* pConnection = GetConnection(dwIndex);
 
@@ -1027,7 +1036,7 @@ void CIocp::PostRecv(DWORD dwIndex, DWORD dwRecvBytes, char** ppMsg, DWORD* pdwM
 	pConnection->PrepareRecv(); //RECV IO 다시 걸기
 }
 
-void CIocp::PostSend(DWORD dwIndex, DWORD dwBytes)
+void CIocpManager::PostSend(DWORD dwIndex, DWORD dwBytes)
 {
 	CConnection* pConnection = GetConnection(dwIndex);
 
@@ -1051,7 +1060,7 @@ void CIocp::PostSend(DWORD dwIndex, DWORD dwBytes)
 	pSendBuf->UnLock();
 }
 
-void CIocp::StopWorkerThread()
+void CIocpManager::StopWorkerThread()
 {
 	m_bWorkerThreadLive = false;
 	for (DWORD i = 0; i < m_dwLockNum; i++)
@@ -1063,7 +1072,7 @@ void CIocp::StopWorkerThread()
 	}
 }
 
-UINT CIocp::GetThreadLockNum()
+UINT CIocpManager::GetThreadLockNum()
 {
 	DWORD dwCurrentThreadID = GetCurrentThreadId();
 

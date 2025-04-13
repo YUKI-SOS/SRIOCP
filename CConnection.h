@@ -3,7 +3,7 @@
 #include "SRRecvRingBuffer.h"
 #include "SRSendRingBuffer.h"
 
-class CIocp;
+class CIocpManager;
 
 class CConnection
 {
@@ -35,8 +35,10 @@ public:
 
 
 public:
-	CIocp* GetNetwork();
-	void SetNetwork(CIocp* pNetwork);
+	CIocpManager* GetNetwork();
+	void SetNetwork(CIocpManager* pNetwork);
+
+	DWORD GetConnectionIndex();
 	SOCKET GetSocket();
 	bool GetConnectionStaus();
 	void SetConnectionStatus(bool status);
@@ -70,7 +72,7 @@ public:
 	void DecreaseSendRef();
 
 public:
-	CIocp* m_pNetwork;
+	CIocpManager* m_pNetwork;
 	DWORD m_dwConnectionIndex; //Ä¿³Ø¼Ç ¹øÈ£
 	SOCKET m_socket;
 	bool m_ConnectionStatus;
