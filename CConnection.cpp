@@ -1,12 +1,13 @@
 #include "CConnection.h"
 #include "SRIocp.h"
 
+CIocpManager* CConnection::m_pIOCPManager = nullptr;
+
 CConnection::CConnection()
-{
-	m_pNetwork = nullptr;
+{	
 	m_dwConnectionIndex = -1;
 	m_socket = INVALID_SOCKET;
-	m_ConnectionStatus = false;
+	m_bConnected = false;
 
 	memset(m_szIP, 0 , sizeof(m_szIP));
 	memset(m_AddrBuf, 0, sizeof(m_AddrBuf));
@@ -23,10 +24,9 @@ CConnection::CConnection()
 
 CConnection::~CConnection()
 {
-	m_pNetwork = nullptr;
 	m_dwConnectionIndex = -1;
 	m_socket = INVALID_SOCKET;
-	m_ConnectionStatus = false;
+	m_bConnected = false;
 
 	memset(m_szIP, 0, sizeof(m_szIP));
 	memset(m_AddrBuf, 0, sizeof(m_AddrBuf));
@@ -58,13 +58,13 @@ bool CConnection::Initialize(DWORD dwConnectionIndex, SOCKET socket, DWORD dwRec
 	m_pSendBuff->Initialize(dwSendRingBuffSize);
 
 	m_pRecvOverlapped = new OverlappedEX;
+	ZeroMemory(m_pRecvOverlapped, sizeof(OverlappedEX));
 	m_pRecvOverlapped->dwIndex = dwConnectionIndex;
 
 	m_pSendOverlapped = new OverlappedEX;
+	ZeroMemory(m_pSendOverlapped, sizeof(OverlappedEX));
 	m_pSendOverlapped->dwIndex = dwConnectionIndex;
 
-	m_dwAcceptRefCount = 0;
-	m_dwConnectRefCount = 0;
 	m_dwRecvRefCount = 0;
 	m_dwSendRefCount = 0;
 
@@ -82,7 +82,7 @@ void CConnection::Recycle()
 
 int CConnection::SetAcceptContextOpt()
 {
-	int iRet = setsockopt(m_socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char*)&(m_pNetwork->m_ListenSocket), sizeof(SOCKET));
+	int iRet = setsockopt(m_socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char*)&(m_pIOCPManager->m_hListenSocket), sizeof(SOCKET));
 	
 	if(iRet == SOCKET_ERROR)
 	{
@@ -94,36 +94,33 @@ int CConnection::SetAcceptContextOpt()
 
 int CConnection::SetConnectContextOpt()
 {
-	int iRet = setsockopt(m_socket, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0);
+	int iResult = setsockopt(m_socket, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0);
 
-	if (iRet == SOCKET_ERROR)
+	if (iResult != 0)
 	{
 		printf("ConnectEX SocketOption Fail WSAGetLastError = %d\n", WSAGetLastError());
+		return iResult;
 	};
 
-	return iRet;
+	return 0;
 }
 
 bool CConnection::CloseSocket()
-{
-	//진짜로 소켓을 초기화 하는 처리.
-	//기본적으로 소켓을 재활용하기 때문에 비정상 적인 상황이나 종료 시 사용한다. 
-
+{		
 	if (m_socket == INVALID_SOCKET)
 	{
-		printf("CloseSocket Fail. m_socket = INVALID_SOCKET \n");
+		printf("m_socket is Already INVALID_SOCKET \n");
 		return false;
-	}
+	}	
 
-	int iError = closesocket(m_socket);
-
-	if (iError == SOCKET_ERROR)
+	if (closesocket(m_socket) == SOCKET_ERROR)
 	{
 		printf("CloseSocket Fail. WSAGetLastError = %d \n", WSAGetLastError());
 		return false;
 	}
 
 	m_socket = INVALID_SOCKET;	
+	SetConnected(false);
 
 	return true;
 }
@@ -133,8 +130,9 @@ bool CConnection::PrepareRecv()
 	DWORD dwFlags = 0;
 	DWORD dwBytes = 0;
 
+	memset(m_pRecvOverlapped, 0, sizeof(OVERLAPPED));
 	m_pRecvOverlapped->wsabuff.len = m_pRecvBuff->GetReservedBytes();
-	m_pRecvOverlapped->wsabuff.buf = m_pRecvBuff->GetReadPtr();
+	m_pRecvOverlapped->wsabuff.buf = m_pRecvBuff->GetWritePtr();
 	m_pRecvOverlapped->eIoType = IOType::RECV;
 	m_pRecvOverlapped->dwIndex = m_dwConnectionIndex;
 
@@ -173,42 +171,30 @@ bool CConnection::Send(char* pMsg, DWORD dwBytes)
 {
 	m_pSendBuff->Lock();
 	
-	bool bPush = false;
-
-	bPush = PushSend(pMsg, dwBytes);
-
-	if (bPush == false)
+	if(PushSend(pMsg, dwBytes) == false)
 	{
 		m_pSendBuff->UnLock();
 		return false;
 	}
 	
-	//send에 대한 통보가 오지 않아 send할 수 없는 상태면 보내지 않는다. 
+	//send에 대한 통보가 오지 않아 send할 수 없는 상태면 버퍼에 푸쉬만 하고  보내지 않는다. 
 	if (m_dwSendWait == TRUE)
 	{
 		m_pSendBuff->UnLock();
 		return true;
 	}
 
-	bool bSend = SendBuff();
-	
-	//send하려는 길이와 send버퍼 처리 못하고 남은 길이가 다를 때 체크. 즉 한 번에 다 못보내는 경우가 있는지 체크.
-	if (dwBytes != m_pSendBuff->GetUsageBytes())
-	{
-		printf("Send dwbytes = %d usageBytes = %d \n", dwBytes, m_pSendBuff->GetUsageBytes());
-		__debugbreak();
-	}
-
-	if (bSend == false)
+	if(SendBuff() == false)
 	{
 		m_pSendBuff->UnLock();
 		return false;
 	}
-	
-	//send 했으면 통보가 오기 전 까지 커넥션이 send할 수 없도록 한다.
+
+	//send 완료 통보가 오기 전 까지 send할 수 없도록 락
 	InterlockedExchange(&m_dwSendWait, TRUE);
 
 	m_pSendBuff->UnLock();
+
 	return true;
 }
 
@@ -261,14 +247,9 @@ void CConnection::UnLockSend()
 	m_pSendBuff->UnLock();
 }
 
-CIocpManager* CConnection::GetNetwork()
+CIocpManager* CConnection::GetNetworkManager()
 {
-	return m_pNetwork;
-}
-
-void CConnection::SetNetwork(CIocpManager* pNetwork)
-{
-	m_pNetwork = pNetwork;
+	return m_pIOCPManager;
 }
 
 DWORD CConnection::GetConnectionIndex()
@@ -281,14 +262,19 @@ SOCKET CConnection::GetSocket()
 	return m_socket;
 }
 
-bool CConnection::GetConnectionStaus()
+void CConnection::SetSocket(SOCKET socket)
 {
-	return m_ConnectionStatus;
+	m_socket = socket;
 }
 
-void CConnection::SetConnectionStatus(bool status)
+bool CConnection::GetConnected()
 {
-	m_ConnectionStatus = status;
+	return m_bConnected;
+}
+
+void CConnection::SetConnected(bool status)
+{
+	m_bConnected = status;
 }
 
 void CConnection::SetRemoteIP(char* szIP, DWORD dwLength)
@@ -345,16 +331,6 @@ SRSendRingBuffer* CConnection::GetSendRingBuff()
 	return m_pSendBuff;
 }
 
-DWORD CConnection::GetAcceptRefCount()
-{
-	return m_dwAcceptRefCount;
-}
-
-DWORD CConnection::GetConnectRefCount()
-{
-	return m_dwConnectRefCount;
-}
-
 DWORD CConnection::GetRecvRefCount()
 {
 	return m_dwRecvRefCount;
@@ -365,25 +341,6 @@ DWORD CConnection::GetSendRefCount()
 	return m_dwSendRefCount;
 }
 
-void CConnection::IncreaseAcceptRef()
-{
-	InterlockedIncrement(&m_dwAcceptRefCount);
-}
-
-void CConnection::DecreaseAcceptRef()
-{
-	InterlockedDecrement(&m_dwAcceptRefCount);
-}
-
-void CConnection::IncreaseConnectRef()
-{
-	InterlockedIncrement(&m_dwConnectRefCount);
-}
-
-void CConnection::DecreaseConnectRef()
-{
-	InterlockedDecrement(&m_dwConnectRefCount);
-}
 
 void CConnection::IncreaseRecvRef()
 {
@@ -404,6 +361,7 @@ void CConnection::DecreaseSendRef()
 {
 	InterlockedDecrement(&m_dwSendRefCount);
 }
+
 
 
 

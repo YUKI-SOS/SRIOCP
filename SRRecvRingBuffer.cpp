@@ -22,11 +22,13 @@ int SRRecvRingBuffer::Initialize(DWORD dwSize)
 	m_dwTotalBytes = dwSize;
 
 	m_pBuffer = new char[m_dwTotalBytes];
+
 	if (m_pBuffer == nullptr)
 	{
 		printf("%s %d Alloc Fail\n", __FUNCTION__, __LINE__);
 		return false;
 	}
+
 	memset(m_pBuffer, 0, dwSize);
 
 	m_pReadPos = m_pBuffer;
@@ -59,6 +61,7 @@ void SRRecvRingBuffer::RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMs
 
 	m_dwReservedBytes -= dwRecvBytes;
 	m_dwUsageBytes += dwRecvBytes;
+	m_pWritePos += dwRecvBytes;
 
 	//부족하면 부족한 만큼만 걸고 받은 다음 리셋해서 다시 건다.
 	//넘치는지 체크는 의미 없음. 받을 수 있는 만큼만 걸어두니까.
@@ -112,6 +115,11 @@ void SRRecvRingBuffer::CheckReset()
 char* SRRecvRingBuffer::GetReadPtr()
 {
 	return m_pReadPos;
+}
+
+char* SRRecvRingBuffer::GetWritePtr()
+{
+	return m_pWritePos;
 }
 
 DWORD SRRecvRingBuffer::GetReservedBytes()

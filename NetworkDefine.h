@@ -35,8 +35,6 @@ enum class ECSType
 enum class IOType
 {
 	NONE = 0
-	, ACCEPT
-	, CONNECT
 	, DISCONNECT
 	, RECV
 	, SEND

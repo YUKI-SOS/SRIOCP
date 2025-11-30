@@ -23,6 +23,7 @@ public:
 	void CheckReset();
 
 	char* GetReadPtr();
+	char* GetWritePtr();
 	DWORD GetReservedBytes();
 
 private:

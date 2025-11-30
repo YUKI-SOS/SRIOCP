@@ -35,13 +35,13 @@ public:
 
 
 public:
-	CIocpManager* GetNetwork();
-	void SetNetwork(CIocpManager* pNetwork);
+	static CIocpManager* GetNetworkManager();
 
 	DWORD GetConnectionIndex();
 	SOCKET GetSocket();
-	bool GetConnectionStaus();
-	void SetConnectionStatus(bool status);
+	void SetSocket(SOCKET socket);
+	bool GetConnected();
+	void SetConnected(bool status);
 
 	void SetRemoteIP(char* szIP, DWORD dwLength);
 	bool GetPeerName(char* pAddress, DWORD* pPort);
@@ -57,25 +57,19 @@ public:
 	SRRecvRingBuffer* GetRecvRingBuff();
 	SRSendRingBuffer* GetSendRingBuff();
 
-	DWORD GetAcceptRefCount();
-	DWORD GetConnectRefCount();
 	DWORD GetRecvRefCount();
 	DWORD GetSendRefCount();
 
-	void IncreaseAcceptRef();
-	void DecreaseAcceptRef();
-	void IncreaseConnectRef();
-	void DecreaseConnectRef();
 	void IncreaseRecvRef();
 	void DecreaseRecvRef();
 	void IncreaseSendRef();
 	void DecreaseSendRef();
 
 public:
-	CIocpManager* m_pNetwork;
+	static CIocpManager* m_pIOCPManager;
 	DWORD m_dwConnectionIndex; //커넥션 번호
 	SOCKET m_socket;
-	bool m_ConnectionStatus;
+	bool m_bConnected;
 	
 	char m_szIP[IP_BUFF_SIZE];
 	char m_AddrBuf[ADDR_BUFF_SIZE] = { 0, };
@@ -89,8 +83,6 @@ public:
 
 	//IO가 걸려있는 만큼 끊어졌을 때에도 GQCS가 응답한다. 걸려있는 IO가 전부 처리되었을 때(레퍼런스 카운트가 모두 0) 끊을 수 있도록 한다.
 	//CloseSocket 대신 DisconnectEX로 IO를 걸고 통보 받으면 AcceptEX를 다시 거는 구조.
-	DWORD m_dwAcceptRefCount;
-	DWORD m_dwConnectRefCount;
 	DWORD m_dwRecvRefCount; 
 	DWORD m_dwSendRefCount;
 

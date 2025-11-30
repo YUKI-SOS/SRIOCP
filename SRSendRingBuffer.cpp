@@ -22,13 +22,14 @@ SRSendRingBuffer::~SRSendRingBuffer()
 bool SRSendRingBuffer::Initialize(DWORD dwSize)
 {
 	m_dwTotalBytes = dwSize;	
-
 	m_pBuffer = new char[m_dwTotalBytes];
+
 	if (m_pBuffer == nullptr)
 	{
 		printf("%s %d Alloc Fail\n", __FUNCTION__, __LINE__);
 		return false;
 	}
+
 	memset(m_pBuffer, 0, dwSize);
 
 	m_pReadPos = m_pBuffer;

@@ -31,83 +31,85 @@ public:
 
 public:
 	//초기화
-	bool Initialize(ECSType eCSType, UINT uPort, UINT dwNum);
-	bool InitNetwork(ECSType csType, UINT port); // 클라이언트의 경우 포트는 NULL 넣어서 이용.
+	bool Initialize(ECSType eCSType, u_short uPort, DWORD dwAcceptNum, DWORD dwConnectNum);
+	bool InitNetwork(ECSType eCSType, u_short uPort); // 클라이언트의 경우 포트는 NULL 넣어서 이용.
 	bool InitAcceptConnection(DWORD dwNum);
-	bool InitAccepIoCompletionPort(DWORD dwNum);
 	bool InitConnectConnection(DWORD dwNum);
-	bool InitConnectIoCompletionPort(DWORD dwNum);
 
-	bool GetIoExFuncPointer();
+	bool AcceptIOCompletionPort(CConnection* pConnection);
+	bool ConnectIOCompletionPort(CConnection* pConnection);
 	
+	//Accept스레드
+	bool CreateAcceptThread();
+	static unsigned __stdcall AcceptThread(LPVOID lpCompletionPortObj);
+
 	//워커스레드
 	bool CreateWorkerThread();
-	static unsigned __stdcall WorkerThread(LPVOID CompletionPortObj);
+	static unsigned __stdcall WorkerThread(LPVOID lpCompletionPortObj);
 	void StopWorkerThread();
 	UINT GetThreadLockNum();
 
 	//함수포인터
+public:
 	static void SetOnAcceptFunc(AcceptFunc pFunc) { g_pOnAcceptFunc = pFunc; };
-	static void OnAccept(DWORD dwIndex) { g_pOnAcceptFunc(dwIndex); };
-	
 	static void SetOnConnectFunc(ConnectFunc pFunc) { g_pOnConnectFunc = pFunc; };
-	static void OnConnect(DWORD dwIndex) { g_pOnConnectFunc(dwIndex); };
-	
 	static void SetOnCloseFunc(CloseFunc pFunc) { g_pOnCloseFunc = pFunc; };
-	static void OnClose(DWORD dwIndex) { g_pOnCloseFunc(dwIndex); };
-	
-	static void SetOnRecvFunc(RecvFunc pFunc) { g_pOnRecvFunc = pFunc; };
+	static void SetOnRecvFunc(RecvFunc pFunc) { g_pOnRecvFunc = pFunc; };	
+private:
+	static void OnAccept(DWORD dwIndex) { g_pOnAcceptFunc(dwIndex); };
+	static void OnConnect(DWORD dwIndex) { g_pOnConnectFunc(dwIndex); };	
+	static void OnClose(DWORD dwIndex) { g_pOnCloseFunc(dwIndex); };	
 	static void OnRecv(DWORD dwIndex, char* pMsg, DWORD dwBytes) { g_pOnRecvFunc(dwIndex, pMsg, dwBytes); };
 
 	//소켓 옵션
+private:
 	void InitSocketOption(SOCKET socket);
 	void SetReuseSocketOption(SOCKET socket);
 	void SetLingerSocketOption(SOCKET socket);
 	void SetNagleOffSocketOption(SOCKET socket);
 
 	//커넥션 관리
+public:
 	CConnection* GetConnection(DWORD dwIndex);
-	CConnection* GetServerConnection(DWORD dwIndex);
-	CConnection* GetClientConnection(DWORD dwIndex);
-	CConnection* GetFreeClientConnection();
+	CConnection* GetConnectConnection(DWORD dwIndex);
+	CConnection* GetFreeConnection();
+	CConnection* GetFreeConnectConnection();
+	bool CloseConnection(CConnection* pConnection);
 	
 	//IO통보 후 처리
+private:
 	void PostAccept(DWORD dwIndex);
 	void PostConnect(DWORD dwIndex);
 	void PostRecv(DWORD dwIndex, DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum, DWORD dwLockIndex);
-	void PostSend(DWORD dwIndex, DWORD dwBytes);
+	void PostSend(CConnection* pConnection, DWORD dwBytes);
 
 	//패킷 처리
+public:
 	void PacketProcess();
 	void SwapRecvQueue();
 	void PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex);
-
-	//소켓 관리
-	bool ReuseSocket(DWORD dwIndex);
-	bool CloseConnection(DWORD dwIndex);
 	
-	CConnection* Connect(char* pAddress, u_short port);
 
+public:
+	CConnection* Connect(char* pAddress, u_short uPort);
 	bool Send(DWORD dwIndex, char* pMsg, DWORD dwBytes);
 
 
 public:
 	ECSType m_eCSType; //서버 클라이언트 구분.
-	u_short m_nBindPort; //accept용도의 bind할 포트
-	SOCKET m_ListenSocket; //리슨 소켓
-	HANDLE m_CompletionPort; //completionport 핸들
+	SOCKET m_hListenSocket; //리슨 소켓
+	HANDLE m_hCompletionPort; //completionport 핸들
 
-	std::vector<CConnection*> m_ServerConnectionList; //서버 입장으로 accept한 커넥션 리스트
-	std::vector<CConnection*> m_ClientConnectionList; //클라이언트 입장으로 connect한 커넥션 리스트. 클라이언트에서 쓸 수도 있고, 서버 간 통신으로 서버가 다른 서버에 클라이언트 입장으로 붙을 때도 쓸 수 있다.
+	std::vector<CConnection*> m_ConnectionList; //서버 입장으로 accept한 커넥션 리스트
+	std::vector<CConnection*> m_ConnectConnectionList; //클라이언트 입장으로 connect한 커넥션 리스트. 클라이언트에서 쓸 수도 있고, 서버 간 통신으로 서버가 다른 서버에 클라이언트 입장으로 붙을 때도 쓸 수 있다.
 
-	std::string m_szRemoteIP; //외부에서 연결시도한 커넥션의 ip
-	u_short m_nRemotePort; //외부에서 연결시도한 커넥션의 포트
+	bool m_bAcceptThreadLive;
 	bool m_bWorkerThreadLive;
 
 	//Ex함수를 이용하기 위한 함수포인터.
-	LPFN_ACCEPTEX lpfnAcceptEx;
-	LPFN_DISCONNECTEX lpfnDisconnectEx;
-	LPFN_CONNECTEX lpfnConnectEx;
+	//LPFN_ACCEPTEX lpfnAcceptEx;
+	//LPFN_DISCONNECTEX lpfnDisconnectEx;
+	//LPFN_CONNECTEX lpfnConnectEx;
 
 	//라이브러리를 이용할 쪽에서 recv받을 때 처리할 로직처리 함수 포인터.
 	static AcceptFunc g_pOnAcceptFunc;
@@ -134,8 +136,8 @@ public:
 	SRWLOCK* m_pBufferSwapLock; //버퍼 스왑용 SRWLock 배열
 	DWORD* m_pThreadIdArr; //워커스레드 아이디 배열
 
-	DWORD m_dwAcceptConnectionMax; //accept커넥션 맥스 최대 개수
+	DWORD m_dwConnectionMax; //accept커넥션 맥스 최대 개수
 	DWORD m_dwConnectConnectionMax; //connect커넥션 맥스 최대 개수
-	DWORD m_dwConnectionSize; //커넥션 현재 개수
+	DWORD m_dwConnectionCount; //커넥션 현재 개수
 };
 
