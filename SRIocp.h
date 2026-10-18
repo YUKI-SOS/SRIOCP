@@ -87,7 +87,7 @@ private:
 public:
 	void PacketProcess();
 	void SwapRecvQueue();
-	void PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex);
+	bool PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex);
 	
 
 public:

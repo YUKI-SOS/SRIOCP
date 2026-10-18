@@ -22,7 +22,7 @@ public:
 
 	//recv
 	bool PrepareRecv();
-	void RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum);
+	bool RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum);
 	void CheckReset();
 
 	//send

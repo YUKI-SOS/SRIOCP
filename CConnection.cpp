@@ -157,9 +157,9 @@ bool CConnection::PrepareRecv()
 	return true;
 }
 
-void CConnection::RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum)
+bool CConnection::RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum)
 {
-	m_pRecvBuff->RecvProcess(dwRecvBytes, ppMsg, pdwMsgBytes, pdwMsgNum);
+	return m_pRecvBuff->RecvProcess(dwRecvBytes, ppMsg, pdwMsgBytes, pdwMsgNum);
 }
 
 void CConnection::CheckReset()
@@ -205,9 +205,16 @@ bool CConnection::PushSend(char* pMsg, DWORD dwBytes)
 
 bool CConnection::SendBuff()
 {
-	DWORD dwBytes = 0;
+	DWORD dwBytes = m_pSendBuff->GetSendBytes();
+
+	if (dwBytes <= 0)
+	{
+		printf("SendBuff Fail. dwBytes = %d \n", dwBytes);
+		return false;
+	}
+
 	memset(m_pSendOverlapped, 0, sizeof(OVERLAPPED));
-	m_pSendOverlapped->wsabuff.len = m_pSendBuff->GetUsageBytes();
+	m_pSendOverlapped->wsabuff.len = dwBytes;
 	m_pSendOverlapped->wsabuff.buf = m_pSendBuff->GetReadPtr();
 	m_pSendOverlapped->eIoType = IOType::SEND;
 	m_pSendOverlapped->dwIndex = m_dwConnectionIndex;
@@ -217,7 +224,7 @@ bool CConnection::SendBuff()
 	if (WSASend(m_socket,
 		&m_pSendOverlapped->wsabuff,
 		1,
-		&dwBytes,
+		nullptr,
 		0,
 		(LPOVERLAPPED)&m_pSendOverlapped->overlapped,
 		NULL) == SOCKET_ERROR)
@@ -230,9 +237,7 @@ bool CConnection::SendBuff()
 		}
 	}
 
-#ifdef __DEV_LOG__
-	printf("SendBuff readptr = %p UsageBytes = %d  dwBytes = %d \n", m_pSendBuff->GetReadPtr(), m_pSendBuff->GetUsageBytes(), dwBytes);
-#endif
+	printf("SendBuff readptr = %p UsageBytes = %d  dwBytes = %d \n", m_pSendBuff->GetReadPtr(), m_pSendBuff->GetSendBytes(), dwBytes);
 
 	return true;
 }

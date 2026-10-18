@@ -7,8 +7,6 @@
 #include <mswsock.h>
 #include <stdlib.h>
 
-#define __DEV_LOG__
-
 const DWORD RECV_PACKET_MAX = 1024; //리시브 패킷 사이즈
 const DWORD SEND_PACKET_MAX = 8192; //센드 패킷 사이즈
 
@@ -60,5 +58,4 @@ typedef struct sPacketInfo
 		dwLength = 0;
 		memset(buff, 0, sizeof(buff));
 	}
-
 }PacketInfo;

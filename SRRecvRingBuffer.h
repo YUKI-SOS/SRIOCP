@@ -19,7 +19,7 @@ public:
 
 	int Initialize(DWORD dwSize);
 	void Recycle();
-	void RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum);
+	bool RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum);
 	void CheckReset();
 
 	char* GetReadPtr();

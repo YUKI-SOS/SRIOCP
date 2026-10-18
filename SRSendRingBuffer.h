@@ -20,6 +20,7 @@ public:
 	char* GetReadPtr();
 	DWORD GetReservedBytes();
 	DWORD GetUsageBytes();
+	DWORD GetSendBytes();
 
 	void Lock();
 	void UnLock();
@@ -31,7 +32,7 @@ private:
 
 	DWORD m_dwTotalBytes; //링버퍼 총 사이즈
 	DWORD m_dwUsageBytes; //링버퍼에 남은 데이터. 받아서 링버퍼에 쌓이면 올리고, 패킷으로 인식해서 조립완료하면 줄인다.
-	DWORD m_dwReserveBytes; //링버퍼에 남은 용량. 
-	
+	DWORD m_dwTailReserveBytes; //링버퍼에서 뒤에 남은 용량.
+
 	SRWLOCK m_sendLock;
 };

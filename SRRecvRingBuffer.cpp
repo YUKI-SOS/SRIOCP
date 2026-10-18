@@ -52,7 +52,7 @@ void SRRecvRingBuffer::Recycle()
 
 }
 
-void SRRecvRingBuffer::RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum)
+bool SRRecvRingBuffer::RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum)
 {
 	//링버퍼에서 받은 데이터로 패킷을 만들어내는 함수.
 	DWORD dwPaketLength = 0;
@@ -79,10 +79,10 @@ void SRRecvRingBuffer::RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMs
 		dwPaketLength = *(DWORD*)m_pReadPos;
 
 		//사이즈 이상 체크.
-		if (dwPaketLength < 0 || dwPaketLength >= RECV_PACKET_MAX) 
+		if (dwPaketLength < 4 || dwPaketLength >= RECV_PACKET_MAX) 
 		{
 			printf("PaketLength Error. \n");
-			break;
+			return false;
 		}
 
 		//패킷이 안되고 남아있는 용량이 패킷 길이보다 작으면 패킷 못만드는 상태임으로 탈출
@@ -98,6 +98,7 @@ void SRRecvRingBuffer::RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMs
 		m_dwUsageBytes -= dwPaketLength;
 	}
 
+	return true;
 }
 
 void SRRecvRingBuffer::CheckReset()
@@ -106,7 +107,7 @@ void SRRecvRingBuffer::CheckReset()
 	if (m_dwReservedBytes < RESET_RESERVE_SIZE) 
 	{
 		m_dwReservedBytes = m_dwTotalBytes - m_dwUsageBytes; //버퍼의 가용 용량 재계산.
-		memcpy(m_pBuffer, m_pReadPos, m_dwUsageBytes); //처리 못하고 남아있는 데이터 버퍼의 시작으로 카피
+		memmove(m_pBuffer, m_pReadPos, m_dwUsageBytes); //처리 못하고 남아있는 데이터 버퍼의 시작으로 카피
 		m_pReadPos = m_pBuffer; //리드를 버퍼의 시작으로 설정
 		m_pWritePos = m_pBuffer + m_dwUsageBytes; //라이트를 남은 데이터를 버퍼의 시작으로 카피한 이후로 설정
 	}

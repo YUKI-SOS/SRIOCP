@@ -415,9 +415,7 @@ unsigned __stdcall CIocpManager::WorkerThread(LPVOID lpCompletionPortObj)
 		//CConnection* pConnection = pIocpManager->GetConnection(dwIndex);
 		SOCKET socket = pConnection->GetSocket();
 
-#ifdef __DEV_LOG__
 		printf("GQCS CurrentThreadID = %d dwIndex = %d transferredBytes = %d eIoType = %d\n", dwCurrentThreadID, dwIndex, dwTransferredBytes, (int)pOverlapped->eIoType);
-#endif 
 
 		if (bRet == FALSE)
 		{
@@ -461,9 +459,7 @@ unsigned __stdcall CIocpManager::WorkerThread(LPVOID lpCompletionPortObj)
 		}
 		else if (pOverlapped->eIoType == IOType::SEND)
 		{
-#ifdef __DEV_LOG__
 			printf("Post Send transferredBytes %d\n", dwTransferredBytes);
-#endif
 			pIocpManager->PostSend(pConnection, dwTransferredBytes);
 		}
 
@@ -484,30 +480,18 @@ void CIocpManager::PacketProcess()
 	if (m_dwReadQueuePos >= m_dwReadQueueSize)
 		goto SWAPCHECK;
 
-#ifdef __DEV_LOG__
 	printf("Read Queue Count = %d\n", m_dwReadQueueSize);
-#endif
 
-	for (DWORD i = 0; i < m_dwReadQueueSize; i++)
-	{
-#ifdef __DEV_LOG__
-		printf("PacketProcess i = %d m_dwReadQueuePos = %d\n", i, m_dwReadQueuePos);
-#endif
+	for (; m_dwReadQueuePos < m_dwReadQueueSize; m_dwReadQueuePos++)
+	{		
 		PacketInfo* pPacketInfo = &(*m_pReadQueue)[m_dwReadQueuePos];
 		DWORD dwIndex = pPacketInfo->dwIndex;
 		CConnection* pConnection = GetConnection(dwIndex);
 
 		if (pConnection->GetConnected() == false)
-			continue;
-
-		/*char szLog[32];
-		memset(szLog, 0, sizeof(szLog));
-		sprintf_s(szLog, "%d 패킷 처리\n", *(int*)(pPacketInfo->buff + 4));
-		OutputDebugStringA(szLog);*/
+			continue;		
 
 		OnRecv(pPacketInfo->dwIndex, pPacketInfo->buff, pPacketInfo->dwLength);
-
-		m_dwReadQueuePos++;
 	}
 
 SWAPCHECK:
@@ -526,18 +510,7 @@ void CIocpManager::SwapRecvQueue()
 		AcquireSRWLockExclusive(m_pBufferSwapLock + i);
 	}
 
-#ifdef __DEV_LOG__
-	printf("Reset Event\n");
-#endif 
-
-	ResetEvent(m_QueueSwapWaitEvent);
-
-#ifdef __DEV_LOG__
 	printf("Prev ReadQueueSize = %d WriteQueueSize = %d \n", m_dwReadQueueSize, m_dwWriteQueueSize);
-#endif
-
-	//리드 큐 다 읽었을 때 스왑이 일어날 때 노드 마다 가지고 있는 버퍼를 비워줄 것인가? 
-	//m_pReadQueue->clear();
 
 	//스왑
 	auto tempBuff = m_pWriteQueue;
@@ -547,16 +520,12 @@ void CIocpManager::SwapRecvQueue()
 	//라이트큐에 현재까지 쌓은 위치가 사이즈. 스왑 하면서 리드큐에 넣는다.
 	m_dwReadQueueSize = m_dwWriteQueueSize;
 	m_dwReadQueuePos = 0;
-	InterlockedExchange(&m_dwWriteQueuePos, -1); //락으로 쌓여있는 상태니까 여긴 인터락 아니어도 될 거 같긴 한데.
+	InterlockedExchange(&m_dwWriteQueuePos, -1);
 	InterlockedExchange(&m_dwWriteQueueSize, 0);
 
-#ifdef __DEV_LOG__
 	printf("After ReadQueueSize = %d WriteQueueSize = %d \n", m_dwReadQueueSize, m_dwWriteQueueSize);
-#endif
 
-#ifdef __DEV_LOG__
 	printf("Set Event\n");
-#endif
 	SetEvent(m_QueueSwapWaitEvent);
 
 	for (DWORD i = 0; i < m_dwLockNum; i++)
@@ -566,7 +535,7 @@ void CIocpManager::SwapRecvQueue()
 
 }
 
-void CIocpManager::PushWriteQueue(DWORD dwIndex, char* pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex)
+bool CIocpManager::PushWriteQueue(DWORD dwIndex, char* pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex)
 {
 	//큐에 푸쉬하는 도중 큐 스왑이 일어나지 않기 위한 락
 	AcquireSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
@@ -577,7 +546,7 @@ void CIocpManager::PushWriteQueue(DWORD dwIndex, char* pMsg, DWORD dwMsgNum, DWO
 	{
 		int iBytes = *(DWORD*)pMsg; //패킷 헤더에서 사이즈를 읽는다. 
 		iTotalBytes += iBytes;
-		DWORD uQueuePos = InterlockedIncrement(&m_dwWriteQueuePos);
+		DWORD dwWriteQueuePos = InterlockedIncrement(&m_dwWriteQueuePos);
 
 		//패킷 하나가 가질 수 있는 사이즈 넘기는지 체크
 		if (iBytes > PACKET_BUFF_MAX)
@@ -587,20 +556,27 @@ void CIocpManager::PushWriteQueue(DWORD dwIndex, char* pMsg, DWORD dwMsgNum, DWO
 		}
 
 		//큐 사이즈가 넘치면 큐 스왑이 일어날 때 까지 대기한다.
-		if (uQueuePos >= RECV_QUEUE_MAX)
+		//스왑 이후 다른 워커스레드에서 푸쉬하여 다시 큐가 넘칠 수 있음으로 새로 인터락으로 얻은 큐 위치가 범위 밖이면 다시 스왑을 대기한다.
+		while(dwWriteQueuePos >= RECV_QUEUE_MAX)
 		{
 			printf("RecvQueue OVER. Wait Swap \n");
-			//락이 걸려 있어 메인 스레드에서 스왑이 못일어나니까 일단 해제 후 대기
-			ReleaseSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
-			//스왑이 일어나기 까지 대기
-			WaitForSingleObject(m_QueueSwapWaitEvent, INFINITE);
-			//스왑 후 다시 락 획득. 획득 전에 다시 스왑 체크가 먼저 일어나도 라이트 큐 사이즈가 0으로 한 번 스왑돼서 더이상 스왑되지 않을 것.
-			AcquireSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
-			//스왑 후 큐 위치를 다시 구한다.
-			uQueuePos = InterlockedIncrement(&m_dwWriteQueuePos);
+			
+			ResetEvent(m_QueueSwapWaitEvent); //스왑 후 SetEvent로 깨웠다면 시그널이 계속 켜져 있어서 WaitForSingleObject에서 대기할 수 없음으로 리셋.			
+			ReleaseSRWLockExclusive(m_pBufferSwapLock + dwLockIndex); //락이 걸려 있어 메인 스레드에서 스왑이 못일어나니까 일단 해제 후 대기			
+			
+			if (WaitForSingleObject(m_QueueSwapWaitEvent, INFINITE) == WAIT_FAILED) //스왑이 일어나기 까지 대기			
+			{
+				DWORD dwError = GetLastError();
+				printf("Queue swap wait failed. error=%lu\n", dwError);
+				return false;
+			}; 
+
+			AcquireSRWLockExclusive(m_pBufferSwapLock + dwLockIndex); //스왑 후 다시 락 획득.
+			
+			dwWriteQueuePos = InterlockedIncrement(&m_dwWriteQueuePos); //스왑 후 큐 위치를 다시 구한다.
 		}
 
-		PacketInfo* pPacketInfo = &(*m_pWriteQueue)[uQueuePos];
+		PacketInfo* pPacketInfo = &(*m_pWriteQueue)[dwWriteQueuePos];
 		pPacketInfo->dwIndex = dwIndex;
 		pPacketInfo->dwLength = iBytes;
 		memcpy(pPacketInfo->buff, pMsg, iBytes);
@@ -768,20 +744,28 @@ void CIocpManager::PostRecv(DWORD dwIndex, DWORD dwRecvBytes, char** ppMsg, DWOR
 	CConnection* pConnection = GetConnection(dwIndex);
 
 	pConnection->DecreaseRecvRef(); //recv IO 카운트 감소
-	pConnection->RecvProcess(dwRecvBytes, ppMsg, pdwMsgBytes, pdwMsgNum); //받은 데이터로 패킷 만들기
-	pConnection->CheckReset(); //링버퍼 리셋 체크
+	
+	//받은 데이터로 패킷 만들기
+	if(pConnection->RecvProcess(dwRecvBytes, ppMsg, pdwMsgBytes, pdwMsgNum) == false) 
+	{
+		printf("RecvProcess Fail \n");
+		CloseConnection(pConnection);
+		return;
+	}
+
 	PushWriteQueue(dwIndex, *ppMsg, *pdwMsgNum, *pdwMsgBytes, dwLockIndex); //라이트 큐에 삽입			
+	pConnection->CheckReset(); //링버퍼 리셋 체크
 	pConnection->PrepareRecv(); //RECV IO 다시 걸기
 }
 
 void CIocpManager::PostSend(CConnection* pConnection, DWORD dwBytes)
 {
-	SRSendRingBuffer* pSendBuf = nullptr;
-	pSendBuf = pConnection->GetSendRingBuff();
+	SRSendRingBuffer* pSendBuf = pConnection->GetSendRingBuff();
+	bool bSendSucc = true;
 
 	pSendBuf->Lock();
 	pConnection->DecreaseSendRef();
-	InterlockedExchange(&pConnection->m_dwSendWait, FALSE);
+	InterlockedExchange(&pConnection->m_dwSendWait, FALSE); //완료 통보 받아서 다음 send IO를 걸 수 있도록 해제.
 
 	pSendBuf->PostSend(dwBytes);
 
@@ -789,11 +773,19 @@ void CIocpManager::PostSend(CConnection* pConnection, DWORD dwBytes)
 
 	if (dwUsageBytes > 0)
 	{
-		pConnection->SendBuff();
-		InterlockedExchange(&pConnection->m_dwSendWait, TRUE);
+		if (pConnection->SendBuff() == false)
+			bSendSucc = false;
+		else
+			InterlockedExchange(&pConnection->m_dwSendWait, TRUE); //남은 데이터가 있어서 send IO를 걸고 다른 곳에서 걸 수 없도록 설정.
 	}
 
 	pSendBuf->UnLock();
+
+	if (bSendSucc == false)
+	{
+		printf("PostSend Fail \n");
+		CloseConnection(pConnection);
+	}
 }
 
 void CIocpManager::StopWorkerThread()
