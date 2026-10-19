@@ -169,33 +169,36 @@ void CConnection::CheckReset()
 
 bool CConnection::Send(char* pMsg, DWORD dwBytes)
 {
+	bool bResult = false;
+
 	m_pSendBuff->Lock();
 	
-	if(PushSend(pMsg, dwBytes) == false)
+	if (PushSend(pMsg, dwBytes) == false)
 	{
-		m_pSendBuff->UnLock();
-		return false;
+		bResult = false;
+		goto lb_return;
 	}
 	
 	//send에 대한 통보가 오지 않아 send할 수 없는 상태면 버퍼에 푸쉬만 하고  보내지 않는다. 
 	if (m_dwSendWait == TRUE)
 	{
-		m_pSendBuff->UnLock();
-		return true;
+		bResult = true;
+		goto lb_return;
 	}
 
 	if(SendBuff() == false)
 	{
-		m_pSendBuff->UnLock();
-		return false;
+		bResult = false;
+		goto lb_return;
 	}
 
 	//send 완료 통보가 오기 전 까지 send할 수 없도록 락
 	InterlockedExchange(&m_dwSendWait, TRUE);
+	bResult = true; 
 
+lb_return:
 	m_pSendBuff->UnLock();
-
-	return true;
+	return bResult;
 }
 
 bool CConnection::PushSend(char* pMsg, DWORD dwBytes)
