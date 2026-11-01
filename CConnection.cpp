@@ -7,7 +7,7 @@ CConnection::CConnection()
 {	
 	m_dwConnectionIndex = -1;
 	m_socket = INVALID_SOCKET;
-	m_bConnected = false;
+	m_eConnectionState = EConnectionState::FREE;
 
 	memset(m_szIP, 0 , sizeof(m_szIP));
 	memset(m_AddrBuf, 0, sizeof(m_AddrBuf));
@@ -26,7 +26,7 @@ CConnection::~CConnection()
 {
 	m_dwConnectionIndex = -1;
 	m_socket = INVALID_SOCKET;
-	m_bConnected = false;
+	m_eConnectionState = EConnectionState::FREE;
 
 	memset(m_szIP, 0, sizeof(m_szIP));
 	memset(m_AddrBuf, 0, sizeof(m_AddrBuf));
@@ -64,6 +64,8 @@ bool CConnection::Initialize(DWORD dwConnectionIndex, SOCKET socket, DWORD dwRec
 	m_pSendOverlapped = new OverlappedEX;
 	ZeroMemory(m_pSendOverlapped, sizeof(OverlappedEX));
 	m_pSendOverlapped->dwIndex = dwConnectionIndex;
+
+	InitializeSRWLock(&m_kIOLock);
 
 	m_dwRecvRefCount = 0;
 	m_dwSendRefCount = 0;
@@ -107,6 +109,14 @@ int CConnection::SetConnectContextOpt()
 
 bool CConnection::CloseSocket()
 {		
+	//소켓을 closesocket해도 이미 걸려있는 IO가 사라지는 것은 아님.
+	//closesocket하면 걸려있던 IO에 대해서 GQCS에서 통보한다. 
+	// 미리 closesocket을 호출해서 걸려있는 IO가 통보되도록 하고 모든 IO가 완료되었다면 커넥션을 초기화하고 상태를 FREE로 하여 재활용할 수 있도록 표시한다. 
+	if (m_eConnectionState != EConnectionState::CLOSING)
+	{
+		return false;
+	}
+
 	if (m_socket == INVALID_SOCKET)
 	{
 		printf("m_socket is Already INVALID_SOCKET \n");
@@ -120,7 +130,6 @@ bool CConnection::CloseSocket()
 	}
 
 	m_socket = INVALID_SOCKET;	
-	SetConnected(false);
 
 	return true;
 }
@@ -129,14 +138,25 @@ bool CConnection::PrepareRecv()
 {
 	DWORD dwFlags = 0;
 	DWORD dwBytes = 0;
+	bool bResult = false;
+
+	IOLock();
+
+	EConnectionState eState = GetConnectionState();
+	
+	if (eState != EConnectionState::CONNECTED)
+	{
+		bResult = false;
+		goto lb_return;
+	}
 
 	memset(m_pRecvOverlapped, 0, sizeof(OVERLAPPED));
 	m_pRecvOverlapped->wsabuff.len = m_pRecvBuff->GetReservedBytes();
 	m_pRecvOverlapped->wsabuff.buf = m_pRecvBuff->GetWritePtr();
-	m_pRecvOverlapped->eIoType = IOType::RECV;
+	m_pRecvOverlapped->eIoType = EIOType::RECV;
 	m_pRecvOverlapped->dwIndex = m_dwConnectionIndex;
 
-	IncreaseRecvRef();
+	IncreaseRef(EIOType::RECV);
 
 	if (WSARecv(m_socket,
 		&m_pRecvOverlapped->wsabuff,
@@ -149,12 +169,17 @@ bool CConnection::PrepareRecv()
 		if (WSAGetLastError() != ERROR_IO_PENDING)
 		{
 			printf("WSARecv Fail. WSAGetLastError = %d \n", WSAGetLastError());
-			DecreaseRecvRef();
-			return false;
+			DecreaseRef(EIOType::RECV);
+			bResult = false;
+			goto lb_return;
 		}
 	}
 
-	return true;
+	bResult = true;
+
+lb_return:
+	IOUnLock();
+	return bResult;
 }
 
 bool CConnection::RecvProcess(DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum)
@@ -186,7 +211,7 @@ bool CConnection::Send(char* pMsg, DWORD dwBytes)
 		goto lb_return;
 	}
 
-	if(SendBuff() == false)
+	if(PrepareSend() == false)
 	{
 		bResult = false;
 		goto lb_return;
@@ -206,23 +231,35 @@ bool CConnection::PushSend(char* pMsg, DWORD dwBytes)
 	return m_pSendBuff->Push(pMsg, dwBytes);
 }
 
-bool CConnection::SendBuff()
+bool CConnection::PrepareSend()
 {
+	bool bResult = false;
+	
+	IOLock();
+
+	EConnectionState eState = GetConnectionState();
 	DWORD dwBytes = m_pSendBuff->GetSendBytes();
+
+	if(eState != EConnectionState::CONNECTED)
+	{
+		bResult = false;
+		goto lb_return;
+	}
 
 	if (dwBytes <= 0)
 	{
-		printf("SendBuff Fail. dwBytes = %d \n", dwBytes);
-		return false;
+		printf("PrepareSend Fail. dwBytes = %d \n", dwBytes);
+		bResult = false;
+		goto lb_return;
 	}
 
 	memset(m_pSendOverlapped, 0, sizeof(OVERLAPPED));
 	m_pSendOverlapped->wsabuff.len = dwBytes;
 	m_pSendOverlapped->wsabuff.buf = m_pSendBuff->GetReadPtr();
-	m_pSendOverlapped->eIoType = IOType::SEND;
+	m_pSendOverlapped->eIoType = EIOType::SEND;
 	m_pSendOverlapped->dwIndex = m_dwConnectionIndex;
 
-	IncreaseSendRef();
+	IncreaseRef(EIOType::SEND);
 
 	if (WSASend(m_socket,
 		&m_pSendOverlapped->wsabuff,
@@ -235,14 +272,19 @@ bool CConnection::SendBuff()
 		if (WSAGetLastError() != ERROR_IO_PENDING)
 		{
 			printf("WSASend Fail. WSAGetLastError = %d \n", WSAGetLastError());
-			DecreaseSendRef();
-			return false;
+			DecreaseRef(EIOType::SEND);
+			bResult = false;
+			goto lb_return;
 		}
 	}
 
-	printf("SendBuff readptr = %p UsageBytes = %d  dwBytes = %d \n", m_pSendBuff->GetReadPtr(), m_pSendBuff->GetSendBytes(), dwBytes);
+	bResult = true;
 
-	return true;
+	printf("PrepareSend readptr = %p UsageBytes = %d  dwBytes = %d \n", m_pSendBuff->GetReadPtr(), m_pSendBuff->GetSendBytes(), dwBytes);
+
+lb_return:
+	IOUnLock();
+	return bResult;
 }
 
 void CConnection::LockSend()
@@ -275,14 +317,14 @@ void CConnection::SetSocket(SOCKET socket)
 	m_socket = socket;
 }
 
-bool CConnection::GetConnected()
+EConnectionState CConnection::GetConnectionState()
 {
-	return m_bConnected;
+	return m_eConnectionState;
 }
 
-void CConnection::SetConnected(bool status)
+void CConnection::SetConnectionState(EConnectionState eState)
 {
-	m_bConnected = status;
+	m_eConnectionState = eState;
 }
 
 void CConnection::SetRemoteIP(char* szIP, DWORD dwLength)
@@ -339,6 +381,16 @@ SRSendRingBuffer* CConnection::GetSendRingBuff()
 	return m_pSendBuff;
 }
 
+void CConnection::IOLock()
+{
+	AcquireSRWLockExclusive(&m_kIOLock);
+}
+
+void CConnection::IOUnLock()
+{
+	ReleaseSRWLockExclusive(&m_kIOLock);
+}
+
 DWORD CConnection::GetRecvRefCount()
 {
 	return m_dwRecvRefCount;
@@ -349,27 +401,30 @@ DWORD CConnection::GetSendRefCount()
 	return m_dwSendRefCount;
 }
 
-
-void CConnection::IncreaseRecvRef()
+LONG CConnection::IncreaseRef(EIOType eIOType)
 {
-	InterlockedIncrement(&m_dwRecvRefCount);
+	switch (eIOType)
+	{
+		case EIOType::RECV:
+			return InterlockedIncrement(&m_dwRecvRefCount);
+		case EIOType::SEND:
+			return InterlockedIncrement(&m_dwSendRefCount);
+		default:
+			return 0;
+	}
 }
 
-void CConnection::DecreaseRecvRef()
+LONG CConnection::DecreaseRef(EIOType eIOType)
 {
-	InterlockedDecrement(&m_dwRecvRefCount);
+	switch (eIOType)
+	{
+	case EIOType::RECV:
+		return InterlockedDecrement(&m_dwRecvRefCount);
+	case EIOType::SEND:
+		return InterlockedDecrement(&m_dwSendRefCount);
+	default:
+		return 0;
+	}
 }
-
-void CConnection::IncreaseSendRef()
-{
-	InterlockedIncrement(&m_dwSendRefCount);
-}
-
-void CConnection::DecreaseSendRef()
-{
-	InterlockedDecrement(&m_dwSendRefCount);
-}
-
-
 
 

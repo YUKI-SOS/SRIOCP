@@ -38,7 +38,7 @@ bool SRSendRingBuffer::Initialize(DWORD dwSize)
 	m_dwUsageBytes = 0;
 	m_dwTailReserveBytes = dwSize;
 
-	InitializeSRWLock(&m_sendLock);
+	InitializeSRWLock(&m_kSendLock);
 
 	return true;
 }
@@ -189,10 +189,10 @@ DWORD SRSendRingBuffer::GetSendBytes()
 
 void SRSendRingBuffer::Lock()
 {
-	AcquireSRWLockExclusive(&m_sendLock);
+	AcquireSRWLockExclusive(&m_kSendLock);
 }
 
 void SRSendRingBuffer::UnLock()
 {
-	ReleaseSRWLockExclusive(&m_sendLock);
+	ReleaseSRWLockExclusive(&m_kSendLock);
 }

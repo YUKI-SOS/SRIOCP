@@ -28,7 +28,7 @@ public:
 	//send
 	bool Send(char* pMsg, DWORD dwBytes); //네트워크 쪽에서 호출
 	bool PushSend(char* pMsg, DWORD dwBytes); //보내기 전까지 메세지 넣기
-	bool SendBuff(); //실제 WSASend가 호출되어 send 를 대기
+	bool PrepareSend(); //실제 WSASend가 호출되어 send 를 대기
 
 	void LockSend();
 	void UnLockSend();
@@ -40,8 +40,8 @@ public:
 	DWORD GetConnectionIndex();
 	SOCKET GetSocket();
 	void SetSocket(SOCKET socket);
-	bool GetConnected();
-	void SetConnected(bool status);
+	EConnectionState GetConnectionState();
+	void SetConnectionState(EConnectionState eState);
 
 	void SetRemoteIP(char* szIP, DWORD dwLength);
 	bool GetPeerName(char* pAddress, DWORD* pPort);
@@ -57,19 +57,21 @@ public:
 	SRRecvRingBuffer* GetRecvRingBuff();
 	SRSendRingBuffer* GetSendRingBuff();
 
+public:
+	void IOLock();
+	void IOUnLock();
+
 	DWORD GetRecvRefCount();
 	DWORD GetSendRefCount();
 
-	void IncreaseRecvRef();
-	void DecreaseRecvRef();
-	void IncreaseSendRef();
-	void DecreaseSendRef();
+	LONG IncreaseRef(EIOType eIOType);
+	LONG DecreaseRef(EIOType eIOType);
 
 public:
 	static CIocpManager* m_pIOCPManager;
 	DWORD m_dwConnectionIndex; //커넥션 번호
 	SOCKET m_socket;
-	bool m_bConnected;
+	EConnectionState m_eConnectionState;
 	
 	char m_szIP[IP_BUFF_SIZE];
 	char m_AddrBuf[ADDR_BUFF_SIZE] = { 0, };
@@ -80,6 +82,8 @@ public:
 
 	SRRecvRingBuffer* m_pRecvBuff;
 	SRSendRingBuffer* m_pSendBuff;
+
+	SRWLOCK m_kIOLock;
 
 	//IO가 걸려있는 만큼 끊어졌을 때에도 GQCS가 응답한다. 걸려있는 IO가 전부 처리되었을 때(레퍼런스 카운트가 모두 0) 끊을 수 있도록 한다.
 	//CloseSocket 대신 DisconnectEX로 IO를 걸고 통보 받으면 AcceptEX를 다시 거는 구조.

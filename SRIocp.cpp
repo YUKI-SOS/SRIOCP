@@ -320,7 +320,7 @@ unsigned __stdcall CIocpManager::AcceptThread(LPVOID lpCompletionPortObj)
 		pConnection->SetSocket(socket);
 		pIOCPManager->InitSocketOption(socket);
 		pIOCPManager->AcceptIOCompletionPort(pConnection);
-		pConnection->SetConnected(true);
+		pConnection->SetConnectionState(EConnectionState::CONNECTED);
 		pIOCPManager->PostAccept(pConnection->m_dwConnectionIndex);
 	}
 
@@ -417,52 +417,30 @@ unsigned __stdcall CIocpManager::WorkerThread(LPVOID lpCompletionPortObj)
 
 		printf("GQCS CurrentThreadID = %d dwIndex = %d transferredBytes = %d eIoType = %d\n", dwCurrentThreadID, dwIndex, dwTransferredBytes, (int)pOverlapped->eIoType);
 
-		if (bRet == FALSE)
-		{
-			//걸려있던 IO 타입이 있으면 레퍼런스 카운트를 감소시켜 준다.
-			switch (pOverlapped->eIoType)
-			{					
-			case IOType::RECV:
-				pConnection->DecreaseRecvRef();
-				break;
-			case IOType::SEND:
-				pConnection->DecreaseSendRef();
-				break;
-			default:
-				break;
-			}
-
-			printf("Socket = %d GetQueuedCompletionStatus Fail WSAGetLastError = %d \n", socket, WSAGetLastError());
-			pIocpManager->CloseConnection(pConnection);
-			continue;
-		}
-
 		//IO가 통보되었는데 사이즈가 0이면 상대쪽에서 연결을 끊은 것으로 판단.
-		if (dwTransferredBytes == 0)
+		if (bRet == FALSE || dwTransferredBytes == 0)
 		{
-			if (pOverlapped->eIoType == IOType::RECV)
-				pConnection->DecreaseRecvRef();
-			else if (pOverlapped->eIoType == IOType::SEND)
-				pConnection->DecreaseSendRef();
+			printf("Socket = %d GetQueuedCompletionStatus Fail WSAGetLastError = %d \n", socket, WSAGetLastError());
+			pIocpManager->CloseConnection(pConnection);		
+			pIocpManager->PostIOProcess(pConnection, pOverlapped->eIoType);
 
-			printf("dwIndex = %d Socket = %d dwTransferredBytes = 0 \n", dwIndex, socket);			
-			pIocpManager->CloseConnection(pConnection);
 			continue;
-		}
+		}		
 
 		//비동기 입출력에서 오버랩구조체를 인자로 전달할 때 오버랩구조체를 멤버로 가진 확장구조체를 오버랩으로 캐스팅해서 보내고
 		//GetQueuedCompletionStatus에서 받은 오버랩 구조체를 다시 원래 구조체로 캐스팅하면 다른 멤버도 받아올 수 있다.
 		//그런 방법으로 IOType Enum을 끼어넣어서 받아와서 구분.
-		if (pOverlapped->eIoType == IOType::RECV)
+		if (pOverlapped->eIoType == EIOType::RECV)
 		{
 			pIocpManager->PostRecv(dwIndex, dwTransferredBytes, &pMsg, &dwMsgBytes, &dwMsgNum, dwLockIndex);
 		}
-		else if (pOverlapped->eIoType == IOType::SEND)
+		else if (pOverlapped->eIoType == EIOType::SEND)
 		{
 			printf("Post Send transferredBytes %d\n", dwTransferredBytes);
 			pIocpManager->PostSend(pConnection, dwTransferredBytes);
 		}
 
+		pIocpManager->PostIOProcess(pConnection, pOverlapped->eIoType);
 	}
 
 	char szLog[32];
@@ -487,8 +465,9 @@ void CIocpManager::PacketProcess()
 		PacketInfo* pPacketInfo = &(*m_pReadQueue)[m_dwReadQueuePos];
 		DWORD dwIndex = pPacketInfo->dwIndex;
 		CConnection* pConnection = GetConnection(dwIndex);
+		EConnectionState eState = pConnection->GetConnectionState();
 
-		if (pConnection->GetConnected() == false)
+		if (eState == EConnectionState::FREE)
 			continue;		
 
 		OnRecv(pPacketInfo->dwIndex, pPacketInfo->buff, pPacketInfo->dwLength);
@@ -609,7 +588,7 @@ CConnection* CIocpManager::GetFreeConnection()
 {
 	for(DWORD i = 0; i < m_dwConnectionMax; i++)
 	{
-		if (m_ConnectionList[i]->GetConnected() == false)
+		if (m_ConnectionList[i]->GetConnectionState() == EConnectionState::FREE)
 			return m_ConnectionList[i];
 	}
 
@@ -620,7 +599,7 @@ CConnection* CIocpManager::GetFreeConnectConnection()
 {
 	for (DWORD i = 0; i < m_dwConnectConnectionMax; i++)
 	{
-		if (m_ConnectConnectionList[i]->GetConnected() == false)
+		if (m_ConnectConnectionList[i]->GetConnectionState() == EConnectionState::FREE)
 			return m_ConnectConnectionList[i];
 	}
 
@@ -629,27 +608,40 @@ CConnection* CIocpManager::GetFreeConnectConnection()
 
 bool CIocpManager::CloseConnection(CConnection* pConnection)
 {
-	if(pConnection->GetConnected() == false)
+	bool bResult = false;
+
+	if (pConnection == nullptr)
 		return false;
 
-	if (pConnection->GetConnected() == false)
-		return false;
+	pConnection->IOLock();
 
-	DWORD dwRecvRef = pConnection->GetRecvRefCount();
+	EConnectionState eState = pConnection->GetConnectionState();
+
+	if (eState == EConnectionState::CONNECTED) 
+	{
+		pConnection->SetConnectionState(EConnectionState::CLOSING);
+		bResult = pConnection->CloseSocket();
+	}
+	else if (eState == EConnectionState::CLOSING)
+	{
+		if (pConnection->GetSocket() == INVALID_SOCKET)
+			bResult = true;
+		else
+			bResult = false; //closing 상태인데 소켓이 살아있는 경우. 재시도 필요. 
+	}	
+
+	/*DWORD dwRecvRef = pConnection->GetRecvRefCount();
 	DWORD dwSendRef = pConnection->GetSendRefCount();
 	
 	if (dwRecvRef != 0 || dwSendRef != 0)
 	{
 		printf("dwIndex = %d Remained IO. dwRecvRef = %d  dwSendRef = %d \n", pConnection, dwRecvRef, dwSendRef);
 		return false;
-	}
+	}*/
 	
-	OnClose(pConnection->m_dwConnectionIndex);
-	pConnection->CloseSocket();
+	pConnection->IOUnLock();
 
-	printf("dwIndex = %d Connection Closed \n", pConnection->m_dwConnectionIndex);
-
-	return true;
+	return bResult;
 }
 
 CConnection* CIocpManager::Connect(char* pAddress, u_short uPort)
@@ -716,7 +708,7 @@ void CIocpManager::PostAccept(DWORD dwIndex)
 {
 	CConnection* pConnection = GetConnection(dwIndex);
 	SOCKET socket = pConnection->GetSocket();
-	pConnection->SetConnected(true);
+	pConnection->SetConnectionState(EConnectionState::CONNECTED);
 
 	printf("Socket = %d Accepted \n", socket);
 
@@ -733,7 +725,7 @@ void CIocpManager::PostConnect(DWORD dwIndex)
 
 	printf("Socket = %d Connected \n", socket);
 
-	pConnection->SetConnected(true);
+	pConnection->SetConnectionState(EConnectionState::CONNECTED);
 	OnConnect(dwIndex);
 
 	pConnection->PrepareRecv();
@@ -742,8 +734,6 @@ void CIocpManager::PostConnect(DWORD dwIndex)
 void CIocpManager::PostRecv(DWORD dwIndex, DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum, DWORD dwLockIndex)
 {
 	CConnection* pConnection = GetConnection(dwIndex);
-
-	pConnection->DecreaseRecvRef(); //recv IO 카운트 감소
 	
 	//받은 데이터로 패킷 만들기
 	if(pConnection->RecvProcess(dwRecvBytes, ppMsg, pdwMsgBytes, pdwMsgNum) == false) 
@@ -764,7 +754,6 @@ void CIocpManager::PostSend(CConnection* pConnection, DWORD dwBytes)
 	bool bSendSucc = true;
 
 	pSendBuf->Lock();
-	pConnection->DecreaseSendRef();
 	InterlockedExchange(&pConnection->m_dwSendWait, FALSE); //완료 통보 받아서 다음 send IO를 걸 수 있도록 해제.
 
 	pSendBuf->PostSend(dwBytes);
@@ -773,7 +762,7 @@ void CIocpManager::PostSend(CConnection* pConnection, DWORD dwBytes)
 
 	if (dwUsageBytes > 0)
 	{
-		if (pConnection->SendBuff() == false)
+		if (pConnection->PrepareSend() == false)
 			bSendSucc = false;
 		else
 			InterlockedExchange(&pConnection->m_dwSendWait, TRUE); //남은 데이터가 있어서 send IO를 걸고 다른 곳에서 걸 수 없도록 설정.
@@ -786,6 +775,16 @@ void CIocpManager::PostSend(CConnection* pConnection, DWORD dwBytes)
 		printf("PostSend Fail \n");
 		CloseConnection(pConnection);
 	}
+}
+
+void CIocpManager::PostIOProcess(CConnection* pConnection, EIOType eIOType)
+{
+	if (pConnection == nullptr)
+		return;
+
+	pConnection->IOLock();
+	pConnection->DecreaseRef(eIOType);
+	pConnection->IOUnLock();
 }
 
 void CIocpManager::StopWorkerThread()

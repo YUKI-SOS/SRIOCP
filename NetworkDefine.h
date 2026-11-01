@@ -30,7 +30,7 @@ enum class ECSType
 	, CLIENT
 };
 
-enum class IOType
+enum class EIOType
 {
 	NONE = 0
 	, DISCONNECT
@@ -38,24 +38,31 @@ enum class IOType
 	, SEND
 };
 
-typedef struct
+enum class EConnectionState 
+{
+	FREE = 0 //커넥션이 연결 안되어 있고, 사용 가능한 상태.
+	, CONNECTED //커넥션이 연결되어 있고, 사용 중인 상태.
+	, CLOSING //커넥션 종료 중인 상태. IO가 남아있어서 종료 대기 중.
+};
+
+struct OverlappedEX
 {
 	OVERLAPPED overlapped;
 	WSABUF wsabuff;
 	DWORD dwIndex; //커넥션 인덱스
-	IOType eIoType;
-}OverlappedEX;
+	EIOType eIoType;
+};
 
-typedef struct sPacketInfo
+struct PacketInfo
 {
 	DWORD dwIndex;
 	DWORD dwLength;
 	char buff[RECV_PACKET_MAX];
 
-	sPacketInfo()
+	PacketInfo()
 	{
 		dwIndex = -1;
 		dwLength = 0;
 		memset(buff, 0, sizeof(buff));
 	}
-}PacketInfo;
+};

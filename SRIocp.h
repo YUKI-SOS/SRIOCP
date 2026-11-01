@@ -82,6 +82,7 @@ private:
 	void PostConnect(DWORD dwIndex);
 	void PostRecv(DWORD dwIndex, DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum, DWORD dwLockIndex);
 	void PostSend(CConnection* pConnection, DWORD dwBytes);
+	void PostIOProcess(CConnection* pConnection, EIOType eIOType);
 
 	//패킷 처리
 public:
@@ -89,7 +90,6 @@ public:
 	void SwapRecvQueue();
 	bool PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex);
 	
-
 public:
 	CConnection* Connect(char* pAddress, u_short uPort);
 	bool Send(DWORD dwIndex, char* pMsg, DWORD dwBytes);
