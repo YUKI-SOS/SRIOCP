@@ -12,9 +12,9 @@ public:
 	virtual ~CConnection();
 
 public:
-	bool Initialize(DWORD dwConnectionIndex, SOCKET socket, DWORD dwRecvRingBuffSize, DWORD dwSendRingBuffSize);
+	bool Initialize(EConnectionType eConnectionType, DWORD dwConnectionIndex, SOCKET socket, DWORD dwRecvRingBuffSize, DWORD dwSendRingBuffSize);
 	void Recycle();
-	
+
 	int SetAcceptContextOpt(); //getpeername 및 getsockname 정상 작동하기 위해서 필요
 	int SetConnectContextOpt();
 
@@ -35,12 +35,13 @@ public:
 
 
 public:
-	static CIocpManager* GetNetworkManager();
+	static CIocpManager* GetNetworkManager() { return m_pIOCPManager; }
 
-	DWORD GetConnectionIndex();
-	SOCKET GetSocket();
+	EConnectionType GetConnectionType() { return m_eConnectionType; }
+	DWORD GetConnectionIndex() { return m_dwConnectionIndex; }
+	SOCKET GetSocket() { return m_socket; }
 	void SetSocket(SOCKET socket);
-	EConnectionState GetConnectionState();
+	EConnectionState GetConnectionState() { return m_eConnectionState; }
 	void SetConnectionState(EConnectionState eState);
 
 	void SetRemoteIP(char* szIP, DWORD dwLength);
@@ -69,6 +70,7 @@ public:
 
 public:
 	static CIocpManager* m_pIOCPManager;
+	EConnectionType m_eConnectionType;
 	DWORD m_dwConnectionIndex; //커넥션 번호
 	SOCKET m_socket;
 	EConnectionState m_eConnectionState;

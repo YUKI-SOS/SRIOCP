@@ -7,6 +7,8 @@
 #include <mswsock.h>
 #include <stdlib.h>
 
+class CConnection;
+
 const DWORD RECV_PACKET_MAX = 1024; //리시브 패킷 사이즈
 const DWORD SEND_PACKET_MAX = 8192; //센드 패킷 사이즈
 
@@ -23,11 +25,11 @@ const DWORD SEND_RING_BUFFER_MAX = 8192;
 const DWORD IP_BUFF_SIZE = 17;
 const DWORD ADDR_BUFF_SIZE = 64;
 
-enum class ECSType
+enum class EConnectionType
 {
-	NONE = 0
-	, SERVER
-	, CLIENT
+	eNONE = 0
+	, eAccept
+	, eConnect
 };
 
 enum class EIOType
@@ -55,12 +57,14 @@ struct OverlappedEX
 
 struct PacketInfo
 {
+	CConnection* pConnection;
 	DWORD dwIndex;
 	DWORD dwLength;
 	char buff[RECV_PACKET_MAX];
 
 	PacketInfo()
 	{
+		pConnection = nullptr;
 		dwIndex = -1;
 		dwLength = 0;
 		memset(buff, 0, sizeof(buff));

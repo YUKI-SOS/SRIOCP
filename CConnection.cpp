@@ -5,6 +5,7 @@ CIocpManager* CConnection::m_pIOCPManager = nullptr;
 
 CConnection::CConnection()
 {	
+	m_eConnectionType = EConnectionType::eNONE;
 	m_dwConnectionIndex = -1;
 	m_socket = INVALID_SOCKET;
 	m_eConnectionState = EConnectionState::FREE;
@@ -46,8 +47,9 @@ CConnection::~CConnection()
 
 }
 
-bool CConnection::Initialize(DWORD dwConnectionIndex, SOCKET socket, DWORD dwRecvRingBuffSize, DWORD dwSendRingBuffSize)
+bool CConnection::Initialize(EConnectionType eConnectionType, DWORD dwConnectionIndex, SOCKET socket, DWORD dwRecvRingBuffSize, DWORD dwSendRingBuffSize)
 {
+	m_eConnectionType = eConnectionType;
 	m_dwConnectionIndex = dwConnectionIndex;
 	m_socket = socket;
 
@@ -297,29 +299,9 @@ void CConnection::UnLockSend()
 	m_pSendBuff->UnLock();
 }
 
-CIocpManager* CConnection::GetNetworkManager()
-{
-	return m_pIOCPManager;
-}
-
-DWORD CConnection::GetConnectionIndex()
-{
-	return m_dwConnectionIndex;
-}
-
-SOCKET CConnection::GetSocket()
-{
-	return m_socket;
-}
-
 void CConnection::SetSocket(SOCKET socket)
 {
 	m_socket = socket;
-}
-
-EConnectionState CConnection::GetConnectionState()
-{
-	return m_eConnectionState;
 }
 
 void CConnection::SetConnectionState(EConnectionState eState)

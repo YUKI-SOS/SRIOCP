@@ -12,13 +12,11 @@ CIocpManager::CIocpManager()
 {
 	m_hListenSocket = INVALID_SOCKET;
 	m_hCompletionPort = NULL;
-	m_eCSType = ECSType::NONE;
 
 	m_bAcceptThreadLive = false;
 	m_bWorkerThreadLive = false;
 
-	m_dwConnectionMax = 0;
-	m_dwConnectionCount = 0;
+	m_dwAcceptConnectionMax = 0;
 	m_dwConnectConnectionMax = 0;
 
 	m_pReadQueue = nullptr;
@@ -48,22 +46,16 @@ CIocpManager::~CIocpManager()
 
 }
 
-bool CIocpManager::Initialize(ECSType eCSType, u_short uPort, DWORD dwAcceptNum, DWORD dwConnectNum)
+bool CIocpManager::Initialize(u_short uPort, DWORD dwAcceptNum, DWORD dwConnectNum)
 {
-	if (eCSType == ECSType::NONE)
-	{
-		printf("CIocpManager::Initialize Fail. eCSType == ECSType::NONE \n");
-		return false;
-	}
-
-	if (InitNetwork(eCSType, uPort) == false)
+	if (InitNetwork(uPort, dwAcceptNum) == false)
 		return false;
 	if (InitAcceptConnection(dwAcceptNum) == false)
 		return false;
 	if (InitConnectConnection(dwConnectNum) == false)
 		return false;
 
-	if (eCSType == ECSType::SERVER)
+	if (dwAcceptNum > 0)
 	{
 		if (CreateAcceptThread() == false)
 			return false;
@@ -72,11 +64,9 @@ bool CIocpManager::Initialize(ECSType eCSType, u_short uPort, DWORD dwAcceptNum,
 	return true;
 }
 
-bool CIocpManager::InitNetwork(ECSType eCSType, u_short uPort)
+bool CIocpManager::InitNetwork(u_short uPort, DWORD dwAcceptNum)
 {
 	WSADATA wsaData;
-
-	m_eCSType = eCSType;
 
 	m_dwReadQueuePos = 0;
 	m_dwReadQueueSize = 0;
@@ -134,7 +124,7 @@ bool CIocpManager::InitNetwork(ECSType eCSType, u_short uPort)
 	}
 
 	//아래로는 서버 초기화
-	if (eCSType == ECSType::CLIENT)
+	if (dwAcceptNum == 0)
 		return true;	
 
 	//bind
@@ -168,31 +158,31 @@ bool CIocpManager::InitNetwork(ECSType eCSType, u_short uPort)
 
 bool CIocpManager::InitAcceptConnection(DWORD dwNum)
 {
-	m_ConnectionList.resize(dwNum);
+	m_vecAcceptConnection.resize(dwNum);
 
 	for (DWORD i = 0; i < dwNum; i++)
 	{
 		CConnection* pConnection = new CConnection;
 		//SOCKET socket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
-		pConnection->Initialize(i, INVALID_SOCKET, RECV_RING_BUFFER_MAX, SEND_RING_BUFFER_MAX);
-		m_ConnectionList[i] = pConnection;
+		pConnection->Initialize(EConnectionType::eAccept, i, INVALID_SOCKET, RECV_RING_BUFFER_MAX, SEND_RING_BUFFER_MAX);
+		m_vecAcceptConnection[i] = pConnection;
 	}
 
-	m_dwConnectionMax = dwNum;
+	m_dwAcceptConnectionMax = dwNum;
 
 	return true;
 }
 
 bool CIocpManager::InitConnectConnection(DWORD dwNum)
 {
-	m_ConnectConnectionList.resize(dwNum);
+	m_vecConnectConnection.resize(dwNum);
 
 	for (DWORD i = 0; i < dwNum; i++)
 	{
 		CConnection* pConnection = new CConnection;
 		SOCKET socket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
-		pConnection->Initialize(i, socket, RECV_RING_BUFFER_MAX, SEND_RING_BUFFER_MAX);
-		m_ConnectConnectionList[i] = pConnection;
+		pConnection->Initialize(EConnectionType::eConnect, i, socket, RECV_RING_BUFFER_MAX, SEND_RING_BUFFER_MAX);
+		m_vecConnectConnection[i] = pConnection;
 	}
 
 	m_dwConnectConnectionMax = dwNum;
@@ -432,7 +422,7 @@ unsigned __stdcall CIocpManager::WorkerThread(LPVOID lpCompletionPortObj)
 		//그런 방법으로 IOType Enum을 끼어넣어서 받아와서 구분.
 		if (pOverlapped->eIoType == EIOType::RECV)
 		{
-			pIocpManager->PostRecv(dwIndex, dwTransferredBytes, &pMsg, &dwMsgBytes, &dwMsgNum, dwLockIndex);
+			pIocpManager->PostRecv(pConnection, dwIndex, dwTransferredBytes, &pMsg, &dwMsgBytes, &dwMsgNum, dwLockIndex);
 		}
 		else if (pOverlapped->eIoType == EIOType::SEND)
 		{
@@ -463,8 +453,15 @@ void CIocpManager::PacketProcess()
 	for (; m_dwReadQueuePos < m_dwReadQueueSize; m_dwReadQueuePos++)
 	{		
 		PacketInfo* pPacketInfo = &(*m_pReadQueue)[m_dwReadQueuePos];
-		DWORD dwIndex = pPacketInfo->dwIndex;
-		CConnection* pConnection = GetConnection(dwIndex);
+		//DWORD dwIndex = pPacketInfo->dwIndex;
+		CConnection* pConnection = pPacketInfo->pConnection;
+		
+		if (pConnection == nullptr)
+		{
+			printf("pConnection is nullptr \n");
+			continue;
+		}
+
 		EConnectionState eState = pConnection->GetConnectionState();
 
 		if (eState == EConnectionState::FREE)
@@ -514,7 +511,7 @@ void CIocpManager::SwapRecvQueue()
 
 }
 
-bool CIocpManager::PushWriteQueue(DWORD dwIndex, char* pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex)
+bool CIocpManager::PushWriteQueue(CConnection* pConnection, DWORD dwIndex, char* pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex)
 {
 	//큐에 푸쉬하는 도중 큐 스왑이 일어나지 않기 위한 락
 	AcquireSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
@@ -556,6 +553,7 @@ bool CIocpManager::PushWriteQueue(DWORD dwIndex, char* pMsg, DWORD dwMsgNum, DWO
 		}
 
 		PacketInfo* pPacketInfo = &(*m_pWriteQueue)[dwWriteQueuePos];
+		pPacketInfo->pConnection = pConnection;
 		pPacketInfo->dwIndex = dwIndex;
 		pPacketInfo->dwLength = iBytes;
 		memcpy(pPacketInfo->buff, pMsg, iBytes);
@@ -572,24 +570,26 @@ bool CIocpManager::PushWriteQueue(DWORD dwIndex, char* pMsg, DWORD dwMsgNum, DWO
 	}
 
 	ReleaseSRWLockExclusive(m_pBufferSwapLock + dwLockIndex);
+
+	return true;
 }
 
 CConnection* CIocpManager::GetConnection(DWORD dwIndex)
 {
-	return m_ConnectionList[dwIndex];
+	return m_vecAcceptConnection[dwIndex];
 }
 
 CConnection* CIocpManager::GetConnectConnection(DWORD dwIndex)
 {
-	return m_ConnectConnectionList[dwIndex];
+	return m_vecConnectConnection[dwIndex];
 }
 
 CConnection* CIocpManager::GetFreeConnection()
 {
-	for(DWORD i = 0; i < m_dwConnectionMax; i++)
+	for(DWORD i = 0; i < m_dwAcceptConnectionMax; i++)
 	{
-		if (m_ConnectionList[i]->GetConnectionState() == EConnectionState::FREE)
-			return m_ConnectionList[i];
+		if (m_vecAcceptConnection[i]->GetConnectionState() == EConnectionState::FREE)
+			return m_vecAcceptConnection[i];
 	}
 
 	return nullptr;
@@ -599,8 +599,8 @@ CConnection* CIocpManager::GetFreeConnectConnection()
 {
 	for (DWORD i = 0; i < m_dwConnectConnectionMax; i++)
 	{
-		if (m_ConnectConnectionList[i]->GetConnectionState() == EConnectionState::FREE)
-			return m_ConnectConnectionList[i];
+		if (m_vecConnectConnection[i]->GetConnectionState() == EConnectionState::FREE)
+			return m_vecConnectConnection[i];
 	}
 
 	return nullptr;
@@ -713,7 +713,12 @@ void CIocpManager::PostAccept(DWORD dwIndex)
 	printf("Socket = %d Accepted \n", socket);
 
 	CIocpManager::OnAccept(dwIndex);
-	pConnection->PrepareRecv();
+	
+	if(pConnection->PrepareRecv() == false)
+	{
+		printf("PrepareRecv Fail \n");
+		CloseConnection(pConnection);
+	}
 }
 
 void CIocpManager::PostConnect(DWORD dwIndex)
@@ -728,13 +733,15 @@ void CIocpManager::PostConnect(DWORD dwIndex)
 	pConnection->SetConnectionState(EConnectionState::CONNECTED);
 	OnConnect(dwIndex);
 
-	pConnection->PrepareRecv();
+	if (pConnection->PrepareRecv() == false)
+	{
+		printf("PrepareRecv Fail \n");
+		CloseConnection(pConnection);
+	}
 }
 
-void CIocpManager::PostRecv(DWORD dwIndex, DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum, DWORD dwLockIndex)
+void CIocpManager::PostRecv(CConnection* pConnection, DWORD dwIndex, DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum, DWORD dwLockIndex)
 {
-	CConnection* pConnection = GetConnection(dwIndex);
-	
 	//받은 데이터로 패킷 만들기
 	if(pConnection->RecvProcess(dwRecvBytes, ppMsg, pdwMsgBytes, pdwMsgNum) == false) 
 	{
@@ -743,9 +750,25 @@ void CIocpManager::PostRecv(DWORD dwIndex, DWORD dwRecvBytes, char** ppMsg, DWOR
 		return;
 	}
 
-	PushWriteQueue(dwIndex, *ppMsg, *pdwMsgNum, *pdwMsgBytes, dwLockIndex); //라이트 큐에 삽입			
-	pConnection->CheckReset(); //링버퍼 리셋 체크
-	pConnection->PrepareRecv(); //RECV IO 다시 걸기
+	//라이트 큐에 삽입			
+	if (PushWriteQueue(pConnection, dwIndex, *ppMsg, *pdwMsgNum, *pdwMsgBytes, dwLockIndex) == false)
+	{
+		printf("PushWriteQueue Fail \n");
+		CloseConnection(pConnection);
+		return; 
+	}
+
+	//링버퍼 리셋 체크
+	pConnection->CheckReset(); 
+
+	//RECV IO 다시 걸기
+	if (pConnection->PrepareRecv() == false) 
+	{
+		printf("PrepareRecv Fail \n");
+		CloseConnection(pConnection);
+		return; 
+	}
+
 }
 
 void CIocpManager::PostSend(CConnection* pConnection, DWORD dwBytes)

@@ -31,8 +31,8 @@ public:
 
 public:
 	//초기화
-	bool Initialize(ECSType eCSType, u_short uPort, DWORD dwAcceptNum, DWORD dwConnectNum);
-	bool InitNetwork(ECSType eCSType, u_short uPort); // 클라이언트의 경우 포트는 NULL 넣어서 이용.
+	bool Initialize(u_short uPort, DWORD dwAcceptNum, DWORD dwConnectNum);
+	bool InitNetwork(u_short uPort, DWORD dwAcceptNum); // 클라이언트의 경우 포트는 NULL 넣어서 이용.
 	bool InitAcceptConnection(DWORD dwNum);
 	bool InitConnectConnection(DWORD dwNum);
 
@@ -80,7 +80,7 @@ public:
 private:
 	void PostAccept(DWORD dwIndex);
 	void PostConnect(DWORD dwIndex);
-	void PostRecv(DWORD dwIndex, DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum, DWORD dwLockIndex);
+	void PostRecv(CConnection* pConnection, DWORD dwIndex, DWORD dwRecvBytes, char** ppMsg, DWORD* pdwMsgBytes, DWORD* pdwMsgNum, DWORD dwLockIndex);
 	void PostSend(CConnection* pConnection, DWORD dwBytes);
 	void PostIOProcess(CConnection* pConnection, EIOType eIOType);
 
@@ -88,7 +88,7 @@ private:
 public:
 	void PacketProcess();
 	void SwapRecvQueue();
-	bool PushWriteQueue(DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex);
+	bool PushWriteQueue(CConnection* pConnection, DWORD dwIndex, char * pMsg, DWORD dwMsgNum, DWORD dwMsgBytes, DWORD dwLockIndex);
 	
 public:
 	CConnection* Connect(char* pAddress, u_short uPort);
@@ -96,12 +96,14 @@ public:
 
 
 public:
-	ECSType m_eCSType; //서버 클라이언트 구분.
 	SOCKET m_hListenSocket; //리슨 소켓
 	HANDLE m_hCompletionPort; //completionport 핸들
 
-	std::vector<CConnection*> m_ConnectionList; //서버 입장으로 accept한 커넥션 리스트
-	std::vector<CConnection*> m_ConnectConnectionList; //클라이언트 입장으로 connect한 커넥션 리스트. 클라이언트에서 쓸 수도 있고, 서버 간 통신으로 서버가 다른 서버에 클라이언트 입장으로 붙을 때도 쓸 수 있다.
+	DWORD m_dwAcceptConnectionMax; //accept커넥션 맥스 최대 개수
+	DWORD m_dwConnectConnectionMax; //connect커넥션 맥스 최대 개수
+
+	std::vector<CConnection*> m_vecAcceptConnection; //서버 입장으로 accept한 커넥션 리스트
+	std::vector<CConnection*> m_vecConnectConnection; //클라이언트 입장으로 connect한 커넥션 리스트. 클라이언트에서 쓸 수도 있고, 서버 간 통신으로 서버가 다른 서버에 클라이언트 입장으로 붙을 때도 쓸 수 있다.
 
 	bool m_bAcceptThreadLive;
 	bool m_bWorkerThreadLive;
@@ -136,8 +138,6 @@ public:
 	SRWLOCK* m_pBufferSwapLock; //버퍼 스왑용 SRWLock 배열
 	DWORD* m_pThreadIdArr; //워커스레드 아이디 배열
 
-	DWORD m_dwConnectionMax; //accept커넥션 맥스 최대 개수
-	DWORD m_dwConnectConnectionMax; //connect커넥션 맥스 최대 개수
-	DWORD m_dwConnectionCount; //커넥션 현재 개수
+	
 };
 
